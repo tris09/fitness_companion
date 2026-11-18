@@ -90,6 +90,43 @@ class _CoachScreenState extends State<CoachScreen> {
     });
   }
 
+  /// Asks before the key is removed. Cancel is the main button, so a quick tap keeps the key.
+  Future<void> _confirmRemoveKey() async {
+    final AppColors c = AppColors.of(context);
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          backgroundColor: c.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius), side: BorderSide(color: c.border)),
+          title: Text('SCHLÜSSEL ENTFERNEN?', style: heading(ctx, 28)),
+          content: Text(
+            'Ohne Schlüssel funktionieren Coach, Chat und Einkaufslisten nicht mehr. '
+            'Du musst ihn danach neu aus Google AI Studio kopieren.',
+            style: bodyStyle(ctx, size: 15, color: c.text2),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: <Widget>[
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                PrimaryButton(label: 'Behalten', height: 52, onPressed: () => Navigator.of(ctx).pop(false)),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: Text('Ja, endgültig entfernen', style: bodyStyle(ctx, size: 14, weight: FontWeight.w600, color: c.text2)),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+    if (ok == true) {
+      await _removeKey();
+    }
+  }
+
   Future<void> _removeKey() async {
     await Secrets.deleteGeminiKey();
     if (!mounted) {
@@ -266,7 +303,12 @@ class _CoachScreenState extends State<CoachScreen> {
                 ],
               ),
             ),
-            SecondaryButton(label: 'Entfernen', height: 44, fontSize: 16, expand: false, onPressed: _busy ? null : _removeKey),
+            // Small and muted on purpose: removing the key needs a second, confirmed step.
+            IconButton(
+              tooltip: 'Schlüssel entfernen',
+              onPressed: _busy ? null : _confirmRemoveKey,
+              icon: Icon(Icons.delete_outline, color: AppColors.of(context).text3),
+            ),
           ],
         ),
       );

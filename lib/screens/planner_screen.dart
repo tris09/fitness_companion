@@ -137,8 +137,9 @@ class _PlannerScreenState extends State<PlannerScreen> {
     final int? picked = await showWheelPicker(
       context,
       title: 'Pause',
-      values: numberRange(0, 600, step: 5),
-      initial: item.restSec,
+      // Minimum rest is 10 s. No rest at all only works through a superset.
+      values: numberRange(10, 600, step: 5),
+      initial: item.restSec < 10 ? 10 : item.restSec,
       label: formatRest,
     );
     if (picked != null && mounted) {

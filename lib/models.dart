@@ -526,3 +526,40 @@ class ShopSettings {
     );
   }
 }
+
+/// One logged weight of an exercise.
+class WeightEntry {
+  final DateTime date;
+  final double kg;
+  final int reps;
+
+  /// 'leicht', 'passt', 'schwer' or '' when the user did not say.
+  final String feel;
+
+  const WeightEntry({required this.date, required this.kg, required this.reps, this.feel = ''});
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'date': date.toIso8601String(),
+        'kg': kg,
+        'reps': reps,
+        'feel': feel,
+      };
+
+  factory WeightEntry.fromJson(Map<String, dynamic> j) {
+    return WeightEntry(
+      date: DateTime.tryParse('${j['date']}') ?? DateTime.now(),
+      kg: (j['kg'] as num?)?.toDouble() ?? 0,
+      reps: (j['reps'] as num?)?.toInt() ?? 0,
+      feel: '${j['feel'] ?? ''}',
+    );
+  }
+}
+
+/// Main muscle groups the app keeps track of.
+const List<String> kMuscleGroups = <String>['Beine', 'Brust', 'Rücken', 'Schultern', 'Arme', 'Core'];
+
+/// Formats kilograms the German way: 42,5 kg or 40 kg.
+String formatKg(double kg) {
+  final String n = kg == kg.roundToDouble() ? kg.toStringAsFixed(0) : kg.toStringAsFixed(1);
+  return '${n.replaceAll('.', ',')} kg';
+}

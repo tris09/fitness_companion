@@ -48,6 +48,20 @@ class SettingsScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 24),
+                  const SectionLabel('Training'),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          'Nach dem Training nach Gewichten fragen',
+                          style: bodyStyle(context, size: 15, weight: FontWeight.w600),
+                        ),
+                      ),
+                      Switch(value: state.askWeights, onChanged: state.setAskWeights),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
                   const SectionLabel('Konto'),
                   const SizedBox(height: 8),
                   Row(

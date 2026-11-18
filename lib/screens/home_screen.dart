@@ -9,6 +9,7 @@ import 'planner_screen.dart';
 import 'settings_screen.dart';
 import 'stretch_screen.dart';
 import 'timer_screen.dart';
+import '../training_memory.dart';
 
 class HomeScreen extends StatelessWidget {
   final void Function(int index) onOpenTab;
@@ -116,6 +117,7 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              _DueCard(state: state),
               _StretchTile(state: state, next: next),
               const SizedBox(height: 12),
               SecondaryButton(label: 'Alle Pläne', onPressed: () => onOpenTab(1)),
@@ -173,6 +175,64 @@ class _StretchTile extends StatelessWidget {
               ),
             ),
             Icon(Icons.chevron_right, color: c.text2),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows muscle groups that were not trained for a while, with a quick button.
+class _DueCard extends StatelessWidget {
+  final AppState state;
+
+  const _DueCard({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    if (state.history.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final List<String> due = state.dueMuscles.take(2).toList();
+    if (due.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final Map<String, DateTime> last = state.muscleLast;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const SectionLabel('Lange nicht trainiert'),
+            const SizedBox(height: 8),
+            for (final String g in due)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(child: Text(g.toUpperCase(), style: heading(context, 24))),
+                    Text(agoText(last[g]), style: bodyStyle(context, size: 14, color: c.text2)),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            SecondaryButton(
+              label: 'Training dafür erstellen',
+              height: 46,
+              fontSize: 17,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (BuildContext _) => ChatScreen(
+                      initialPrompt: 'Erstelle mir ein Training für heute mit Schwerpunkt ${due.join(' und ')}. '
+                          'Nutze meine letzten Gewichte für die Gewichtsempfehlungen.',
+                    ),
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),

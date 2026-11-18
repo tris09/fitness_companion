@@ -86,7 +86,8 @@ class CoachProgram {
           exerciseId: id,
           sets: _clamp(it['sets'], 1, 10, 3),
           reps: ex.timed ? _clamp(it['reps'], 10, 600, 45) : _clamp(it['reps'], 1, 50, 10),
-          restSec: _clamp(it['restSec'], 0, 600, 60),
+          // Rest 10 to 180 s. Inside a superset the next exercise follows directly anyway.
+          restSec: _clamp(it['restSec'], 10, 180, 60),
           supersetWithNext: it['supersetWithNext'] == true || it['superset'] == true,
         ));
       }
@@ -221,7 +222,7 @@ class GeminiCoachService implements CoachService {
     b.writeln('- Nutze nur Übungen aus der Liste unten und gib ihre id exakt an.');
     b.writeln('- Erstelle genau ${r.daysPerWeek} Trainingstage mit je 4 bis 8 Übungen.');
     b.writeln('- sets: 1 bis 6. reps: Wiederholungen, bei Übungen mit timed=ja Sekunden.');
-    b.writeln('- restSec: Pause nach der Übung in Sekunden, 0 bis 180.');
+    b.writeln('- restSec: Pause nach der Übung in Sekunden, 10 bis 180.');
     b.writeln('- supersetWithNext=true heißt: direkt weiter zur nächsten Übung ohne Pause.');
     b.writeln('- Bei mehreren Stilen die Stile sinnvoll mischen. Nicht jeder Stil muss an jedem Tag vorkommen, aber jeder soll im Programm vertreten sein.');
     b.writeln('- Zum Stil Supersets oder CrossFit gehört: passende Übungen mit supersetWithNext=true verbinden. Sonst false.');

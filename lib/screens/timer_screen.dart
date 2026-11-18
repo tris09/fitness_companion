@@ -7,6 +7,7 @@ import '../catalog.dart';
 import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../training_memory.dart';
 import '../widgets/common.dart';
 import 'success_screen.dart';
 
@@ -94,7 +95,8 @@ class _TimerScreenState extends State<TimerScreen> {
           out.add(_Step(rest: false, exercise: ex, set: r, sets: it.sets, reps: it.reps, seconds: ex.timed ? it.reps : 0));
         }
         final bool veryLast = g == groups.length - 1 && r == rounds;
-        final int rest = group.last.restSec;
+        // A rest is always required between sets, at least 10 s.
+        final int rest = group.last.restSec < 10 ? 10 : group.last.restSec;
         if (!veryLast && rest > 0) {
           out.add(_Step(
             rest: true,
@@ -262,6 +264,13 @@ class _TimerScreenState extends State<TimerScreen> {
                                 Text(shown.name.toUpperCase(), style: heading(context, 32)),
                                 const SizedBox(height: 4),
                                 Text(shown.muscleLabel, style: bodyStyle(context, size: 13, color: c.text2)),
+                                if (usesWeight(shown) && AppScope.of(context).suggestedWeight(shown.id) != null) ...<Widget>[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Gewicht: ${formatKg(AppScope.of(context).suggestedWeight(shown.id)!)}',
+                                    style: bodyStyle(context, size: 15, weight: FontWeight.w700, color: c.accentText),
+                                  ),
+                                ],
                               ],
                             ),
                           ),

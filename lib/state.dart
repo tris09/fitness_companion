@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/coach_service.dart';
 import 'services/google_auth.dart';
 import 'services/notifications.dart';
+import 'training_memory.dart';
 
 /// Holds all app data and saves it on the device.
 class AppState extends ChangeNotifier {
@@ -39,7 +40,21 @@ class AppState extends ChangeNotifier {
 
   /// The last finished workouts, newest last. The coach reads them as memory.
   List<WorkoutLog> history = <WorkoutLog>[];
-  static const int _maxHistory = 30;
+
+  /// Keep rule for [history]: a workout is deleted once it is older than
+  /// [_keepDays] days AND at least [_keepCount] newer workouts exist.
+  /// So the coach always sees the last 2 weeks, and at least the last 5 workouts.
+  static const int _keepDays = 14;
+  static const int _keepCount = 5;
+
+  /// Muscle group -> last training day. Kept on its own, so it survives the clean-up.
+  Map<String, DateTime> muscleLast = <String, DateTime>{};
+
+  /// Logged weights per exercise id, newest last. At most 12 per exercise.
+  Map<String, List<WeightEntry>> weights = <String, List<WeightEntry>>{};
+
+  /// Ask for the used weights after a workout. The user can switch it off.
+  bool askWeights = true;
 
   /// Short facts the coach should keep in mind, e.g. 'Knie schonen'.
   List<String> memory = <String>[];
@@ -85,6 +100,21 @@ class AppState extends ChangeNotifier {
         }
         final List<dynamic> rawHistory = (j['history'] as List<dynamic>?) ?? <dynamic>[];
         history = rawHistory.map((dynamic e) => WorkoutLog.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        final Map<String, dynamic> rawLast = Map<String, dynamic>.from((j['muscleLast'] as Map?) ?? <String, dynamic>{});
+        muscleLast = <String, DateTime>{
+          for (final MapEntry<String, dynamic> e in rawLast.entries)
+            if (DateTime.tryParse('${e.value}') != null) e.key: DateTime.parse('${e.value}'),
+        };
+        for (final WorkoutLog w in history) {
+          markTrained(muscleLast, w);
+        }
+        _pruneHistory();
+        final Map<String, dynamic> rawW = Map<String, dynamic>.from((j['weights'] as Map?) ?? <String, dynamic>{});
+        weights = rawW.map((String k, dynamic v) => MapEntry<String, List<WeightEntry>>(
+              k,
+              ((v as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => WeightEntry.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
+            ));
+        askWeights = j['askWeights'] != false;
         memory = ((j['memory'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
         final List<dynamic> rawShopping = (j['shopping'] as List<dynamic>?) ?? <dynamic>[];
         shopping = rawShopping.map((dynamic e) => ShoppingList.fromJson(Map<String, dynamic>.from(e as Map))).toList();
@@ -140,7 +170,10 @@ class AppState extends ChangeNotifier {
         'coachProfile': coachProfile.toJson(),
         'body': body.toJson(),
         'history': history.map((WorkoutLog e) => e.toJson()).toList(),
+        'muscleLast': muscleLast.map((String k, DateTime v) => MapEntry<String, String>(k, v.toIso8601String())),
         'memory': memory,
+        'weights': weights.map((String k, List<WeightEntry> v) => MapEntry<String, dynamic>(k, v.map((WeightEntry e) => e.toJson()).toList())),
+        'askWeights': askWeights,
         'shopping': shopping.map((ShoppingList e) => e.toJson()).toList(),
         'shop': shop.toJson(),
         'chat': chat.map((ChatMessage e) => e.toJson()).toList(),
@@ -235,8 +268,10 @@ class AppState extends ChangeNotifier {
     coachProfile = CoachProfile();
     body = BodyProfile();
     history = <WorkoutLog>[];
+    muscleLast = <String, DateTime>{};
     chat = <ChatMessage>[];
     memory = <String>[];
+    weights = <String, List<WeightEntry>>{};
     shopping = <ShoppingList>[];
     shop = ShopSettings();
     _changed();
@@ -282,16 +317,34 @@ class AppState extends ChangeNotifier {
 
   /// Remembers a finished workout for the coach.
   void logWorkout(Plan plan) {
-    history.add(WorkoutLog(
+    final WorkoutLog w = WorkoutLog(
       date: DateTime.now(),
       planName: plan.name,
       items: plan.items.map((PlanItem e) => e.copy()).toList(),
-    ));
-    if (history.length > _maxHistory) {
-      history = history.sublist(history.length - _maxHistory);
-    }
+    );
+    history.add(w);
+    markTrained(muscleLast, w);
+    _pruneHistory();
     _changed();
   }
+
+  /// Applies the keep rule (see [_keepDays] and [_keepCount]).
+  void _pruneHistory() {
+    history.sort((WorkoutLog a, WorkoutLog b) => a.date.compareTo(b.date));
+    final DateTime limit = DateTime.now().subtract(const Duration(days: _keepDays));
+    final List<WorkoutLog> kept = <WorkoutLog>[];
+    for (int i = 0; i < history.length; i++) {
+      final bool recent = history[i].date.isAfter(limit);
+      final bool inLastFive = i >= history.length - _keepCount;
+      if (recent || inLastFive) {
+        kept.add(history[i]);
+      }
+    }
+    history = kept;
+  }
+
+  /// Groups not trained for a while, longest ago first.
+  List<String> get dueMuscles => dueGroups(muscleLast);
 
   void addChat(ChatMessage m) {
     chat.add(m);
@@ -314,6 +367,30 @@ class AppState extends ChangeNotifier {
     final CoachProgram program = CoachProgram.parse(m.programJson);
     plans.addAll(program.toPlans(newId));
     m.saved = true;
+    _changed();
+  }
+
+  /// Stores the weights of one workout. Key = exercise id.
+  void addWeights(Map<String, WeightEntry> entries) {
+    entries.forEach((String id, WeightEntry e) {
+      final List<WeightEntry> list = weights.putIfAbsent(id, () => <WeightEntry>[]);
+      list.add(e);
+      if (list.length > 12) {
+        list.removeRange(0, list.length - 12);
+      }
+    });
+    _changed();
+  }
+
+  double? suggestedWeight(String exerciseId) => suggestWeight(weights[exerciseId] ?? <WeightEntry>[]);
+
+  WeightEntry? lastWeight(String exerciseId) {
+    final List<WeightEntry>? l = weights[exerciseId];
+    return (l == null || l.isEmpty) ? null : l.last;
+  }
+
+  void setAskWeights(bool v) {
+    askWeights = v;
     _changed();
   }
 
