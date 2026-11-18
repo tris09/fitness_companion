@@ -3,7 +3,7 @@ class TutorialStep {
   final String title;
   final String text;
 
-  /// Asset path of the picture, for example 'assets/tutorials/gemini_1.png'.
+  /// Asset path of the picture, for example 'assets/tutorials/gemini_1.webp'.
   /// A missing file shows a placeholder, so the app never breaks.
   final String image;
   final String? linkLabel;
@@ -32,24 +32,24 @@ const Tutorial geminiKeyTutorial = Tutorial(
     TutorialStep(
       title: 'Seite öffnen',
       text: 'Öffne die Seite für API-Schlüssel in Google AI Studio.',
-      image: 'assets/tutorials/gemini_1.png',
+      image: 'assets/tutorials/gemini_1.webp',
       linkLabel: 'aistudio.google.com/api-keys',
       linkUrl: 'https://aistudio.google.com/api-keys',
     ),
     TutorialStep(
       title: 'Schlüssel erstellen',
       text: 'Tippe auf „API-Schlüssel erstellen“.',
-      image: 'assets/tutorials/gemini_2.png',
+      image: 'assets/tutorials/gemini_2.webp',
     ),
     TutorialStep(
       title: 'Schlüssel benennen',
       text: 'Gib dem Schlüssel und dem Projekt einen Namen, zum Beispiel „Fitness Coach API“.',
-      image: 'assets/tutorials/gemini_3.png',
+      image: 'assets/tutorials/gemini_3.webp',
     ),
     TutorialStep(
       title: 'In die App einfügen',
       text: 'Kopiere den API-Schlüssel und füge ihn hier in der App ein.',
-      image: 'assets/tutorials/gemini_4.png',
+      image: 'assets/tutorials/gemini_4.webp',
     ),
   ],
 );

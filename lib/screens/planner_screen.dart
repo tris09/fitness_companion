@@ -250,20 +250,50 @@ class _PlannerScreenState extends State<PlannerScreen> {
     );
   }
 
+  /// Superset group of the item: letter (A, B, …), position and size. Null for a single exercise.
+  ({String letter, int pos, int size})? _group(int index) {
+    int letter = 0;
+    int i = 0;
+    while (i < _items.length) {
+      int end = i;
+      while (end < _items.length - 1 && _items[end].supersetWithNext) {
+        end++;
+      }
+      final int size = end - i + 1;
+      if (size > 1) {
+        if (index >= i && index <= end) {
+          return (letter: String.fromCharCode(65 + letter % 26), pos: index - i + 1, size: size);
+        }
+        letter++;
+      }
+      i = end + 1;
+    }
+    return null;
+  }
+
   /// One block of the plan. In list mode it also has buttons to move it.
   Widget _itemCard(int index, {required bool listMode}) {
     final AppColors c = AppColors.of(context);
     final PlanItem item = _items[index];
     final Exercise ex = exerciseById(item.exerciseId);
     final bool isLast = index == _items.length - 1;
-    final bool linked = item.supersetWithNext || (index > 0 && _items[index - 1].supersetWithNext);
+    final ({String letter, int pos, int size})? group = _group(index);
+    final bool linked = group != null;
 
-    return Container(
+    final Widget card = AnimatedContainer(
+      duration: kFast,
+      curve: kEase,
       padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
       decoration: BoxDecoration(
-        color: c.surface,
-        border: Border.all(color: linked ? c.accent : c.border, width: linked ? 2 : 1),
-        borderRadius: BorderRadius.circular(kRadius),
+        color: linked ? c.surface2 : c.surface,
+        border: linked
+            ? Border(
+                left: BorderSide(color: c.accent, width: 8),
+                top: BorderSide(color: c.accent, width: 2),
+                right: BorderSide(color: c.accent, width: 2),
+                bottom: BorderSide(color: c.accent, width: 2),
+              )
+            : Border.all(color: c.border, width: 1),
       ),
       child: AnimatedSize(
         duration: kFast,
@@ -278,7 +308,30 @@ class _PlannerScreenState extends State<PlannerScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text('${index + 1} · ${ex.category}'.toUpperCase(), style: labelStyle(context)),
+                    if (group != null)
+                      Row(
+                        children: <Widget>[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            color: c.accent,
+                            child: Text(
+                              '${group.letter}${group.pos}',
+                              style: labelStyle(context, color: c.onAccent),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Superset ${group.letter} · ${group.pos} von ${group.size} · ${ex.category}'.toUpperCase(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: labelStyle(context, color: c.accentText),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text('${index + 1} · Einzelübung · ${ex.category}'.toUpperCase(), style: labelStyle(context)),
                     const SizedBox(height: 4),
                     Text(ex.name.toUpperCase(), style: heading(context, listMode ? 24 : 20)),
                   ],
@@ -386,6 +439,24 @@ class _PlannerScreenState extends State<PlannerScreen> {
       ),
       ),
     );
+
+    // A solid bar joins the blocks of a superset, so the group reads as one unit.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        card,
+        if (item.supersetWithNext && !isLast)
+          Row(
+            children: <Widget>[
+              Container(width: 8, height: 18, color: c.accent),
+              const SizedBox(width: 10),
+              Icon(Icons.south, size: 14, color: c.accentText),
+              const SizedBox(width: 4),
+              Text('DIREKT WEITER', style: labelStyle(context, color: c.accentText)),
+            ],
+          ),
+      ],
+    );
   }
 
   // ---------- Mode 1: drag and drop ----------
@@ -438,7 +509,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
     return AppearIn(
       key: ObjectKey(_items[index]),
       child: Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(bottom: _items[index].supersetWithNext ? 0 : 8),
       child: DragTarget<Object>(
         onWillAcceptWithDetails: (DragTargetDetails<Object> d) => !(d.data is int && d.data == index),
         onAcceptWithDetails: (DragTargetDetails<Object> d) => _drop(d.data, index),
@@ -690,7 +761,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
             ),
           ),
         for (int i = 0; i < _items.length; i++) ...<Widget>[
-          if (i > 0) _insertButton(i),
+          if (i > 0 && !_items[i - 1].supersetWithNext) _insertButton(i),
           AppearIn(key: ObjectKey(_items[i]), child: _itemCard(i, listMode: true)),
         ],
         const SizedBox(height: 16),

@@ -196,7 +196,8 @@ class ChipBox extends StatelessWidget {
                 duration: kFast,
                 curve: kEase,
                 style: bodyStyle(context, size: 13, weight: FontWeight.w600, color: fg),
-                maxLines: 1,
+                maxLines: 2,
+                textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 child: Text(text),
               ),
@@ -352,3 +353,34 @@ InputDecoration fieldDecoration(BuildContext context, String label, {String? hin
 }
 
 const List<String> weekdayShort = <String>['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+/// Lays out options in rows with the same number of columns.
+/// Every cell has the same width. A last row with fewer items keeps
+/// the same cell width, so nothing breaks unevenly.
+class EvenGrid extends StatelessWidget {
+  final List<Widget> children;
+  final int columns;
+  final double gap;
+
+  const EvenGrid({super.key, required this.children, this.columns = 2, this.gap = 8});
+
+  @override
+  Widget build(BuildContext context) {
+    final List<Widget> rows = <Widget>[];
+    for (int i = 0; i < children.length; i += columns) {
+      final List<Widget> cells = <Widget>[];
+      for (int k = 0; k < columns; k++) {
+        if (k > 0) {
+          cells.add(SizedBox(width: gap));
+        }
+        final int index = i + k;
+        cells.add(Expanded(child: index < children.length ? children[index] : const SizedBox.shrink()));
+      }
+      if (rows.isNotEmpty) {
+        rows.add(SizedBox(height: gap));
+      }
+      rows.add(Row(children: cells));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows);
+  }
+}

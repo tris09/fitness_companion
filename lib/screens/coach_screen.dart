@@ -9,6 +9,7 @@ import '../theme.dart';
 import '../tutorials.dart';
 import '../widgets/common.dart';
 import '../widgets/tutorial_dialog.dart';
+import 'chat_screen.dart';
 import 'wiki_screen.dart';
 
 /// The personal coach. Sends one controlled request to Gemini with the
@@ -123,7 +124,9 @@ class _CoachScreenState extends State<CoachScreen> {
           level: profile.level,
           daysPerWeek: profile.days,
           minutes: profile.minutes,
-          note: _noteCtrl.text,
+          note: profile.aiDecides
+              ? 'Ziel, Stil und Umfang darfst du selbst passend wählen. ${_noteCtrl.text}'
+              : _noteCtrl.text,
         ),
       );
       final String? used = state.coach.lastWorkingModel;
@@ -156,10 +159,16 @@ class _CoachScreenState extends State<CoachScreen> {
     }
   }
 
-  Widget _choice<T>(List<T> values, T selected, String Function(T v) label, void Function(T v) onSelect) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+  /// [columns] is at most 2 for long labels. Short labels (numbers) use one even row.
+  Widget _choice<T>(
+    List<T> values,
+    T selected,
+    String Function(T v) label,
+    void Function(T v) onSelect, {
+    int columns = 2,
+  }) {
+    return EvenGrid(
+      columns: columns,
       children: <Widget>[
         for (final T v in values)
           InkWell(
@@ -174,11 +183,42 @@ class _CoachScreenState extends State<CoachScreen> {
     );
   }
 
-  /// Several styles can be selected at the same time. At least one stays selected.
+  /// Link to the style guide. Set apart from the chips so it does not read as an option.
+  Widget _wikiLink() {
+    final AppColors c = AppColors.of(context);
+    return InkWell(
+      onTap: _openWiki,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: c.surface,
+          border: Border(left: BorderSide(color: c.accentText, width: 3)),
+        ),
+        child: Row(
+          children: <Widget>[
+            Icon(Icons.menu_book_outlined, size: 22, color: c.accentText),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Text('Trainingsstile erklärt', style: bodyStyle(context, size: 15, weight: FontWeight.w700)),
+                  Text('Unsicher? Hier steht, was zu dir passt.', style: bodyStyle(context, size: 13, color: c.text2)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: c.text2),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _styleChoice(CoachProfile draft) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
+    return EvenGrid(
+      columns: 2,
       children: <Widget>[
         for (final String v in trainingStyles)
           InkWell(
@@ -338,27 +378,50 @@ class _CoachScreenState extends State<CoachScreen> {
           style: bodyStyle(context, size: 14, color: c.text2),
         ),
         const SizedBox(height: 18),
-        const SectionLabel('Trainingsstile · Mehrfachauswahl'),
+        const SectionLabel('Trainingsvorlieben'),
         const SizedBox(height: 8),
-        _styleChoice(draft),
-        const SizedBox(height: 10),
-        SecondaryButton(label: 'Trainingsstile erklärt', height: 44, fontSize: 16, onPressed: _openWiki),
-        const SizedBox(height: 18),
-        const SectionLabel('Ziel'),
-        const SizedBox(height: 8),
-        _choice<String>(_goals, draft.goal, (String v) => v, (String v) => draft.goal = v),
-        const SizedBox(height: 18),
-        const SectionLabel('Erfahrung'),
-        const SizedBox(height: 8),
-        _choice<String>(_levels, draft.level, (String v) => v, (String v) => draft.level = v),
-        const SizedBox(height: 18),
-        const SectionLabel('Trainingstage pro Woche'),
-        const SizedBox(height: 8),
-        _choice<int>(const <int>[2, 3, 4, 5, 6], draft.days, (int v) => '$v×', (int v) => draft.days = v),
-        const SizedBox(height: 18),
-        const SectionLabel('Dauer pro Einheit'),
-        const SizedBox(height: 8),
-        _choice<int>(const <int>[30, 45, 60, 90], draft.minutes, (int v) => '$v min', (int v) => draft.minutes = v),
+        _choice<bool>(const <bool>[true, false], draft.aiDecides, (bool v) => v ? 'Coach entscheidet' : 'Selbst wählen',
+            (bool v) => draft.aiDecides = v),
+        AnimatedSize(
+          duration: kFast,
+          curve: kEase,
+          alignment: Alignment.topCenter,
+          child: draft.aiDecides
+              ? Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Text(
+                    'Der Coach wählt Ziel, Stil und Umfang passend zu deinen Körperdaten und Trainings.',
+                    style: bodyStyle(context, size: 14, color: AppColors.of(context).text2),
+                  ),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const SizedBox(height: 18),
+                    const SectionLabel('Trainingsstile · Mehrfachauswahl'),
+                    const SizedBox(height: 8),
+                    _styleChoice(draft),
+                    const SizedBox(height: 12),
+                    _wikiLink(),
+                    const SizedBox(height: 22),
+                    const SectionLabel('Ziel'),
+                    const SizedBox(height: 8),
+                    _choice<String>(_goals, draft.goal, (String v) => v, (String v) => draft.goal = v),
+                    const SizedBox(height: 18),
+                    const SectionLabel('Erfahrung'),
+                    const SizedBox(height: 8),
+                    _choice<String>(_levels, draft.level, (String v) => v, (String v) => draft.level = v),
+                    const SizedBox(height: 18),
+                    const SectionLabel('Trainingstage pro Woche'),
+                    const SizedBox(height: 8),
+                    _choice<int>(const <int>[2, 3, 4, 5, 6], draft.days, (int v) => '$v×', (int v) => draft.days = v, columns: 5),
+                    const SizedBox(height: 18),
+                    const SectionLabel('Dauer pro Einheit'),
+                    const SizedBox(height: 8),
+                    _choice<int>(const <int>[30, 45, 60, 90], draft.minutes, (int v) => '$v min', (int v) => draft.minutes = v, columns: 4),
+                  ],
+                ),
+        ),
         const SizedBox(height: 22),
         PrimaryButton(
           label: 'Speichern',
@@ -415,10 +478,15 @@ class _CoachScreenState extends State<CoachScreen> {
             children: <Widget>[
               const SectionLabel('Dein Coach-Profil'),
               const SizedBox(height: 12),
-              _profileLine('Stile', p.styles.join(', ')),
-              _profileLine('Ziel', p.goal),
-              _profileLine('Erfahrung', p.level),
-              _profileLine('Training', '${p.days}× pro Woche · ${p.minutes} min'),
+              if (p.aiDecides)
+                _profileLine('Vorlieben', 'Coach entscheidet')
+              else ...<Widget>[
+                _profileLine('Stile', p.styles.join(', ')),
+                _profileLine('Ziel', p.goal),
+                _profileLine('Erfahrung', p.level),
+                _profileLine('Training', '${p.days}× pro Woche · ${p.minutes} min'),
+              ],
+              _profileLine('Körper', '${state.body.weightKg.round()} kg · ${state.body.heightCm} cm · ${state.body.age} J.'),
               const SizedBox(height: 4),
               SecondaryButton(
                 label: 'Ziele ändern',
@@ -439,6 +507,48 @@ class _CoachScreenState extends State<CoachScreen> {
           ),
         ),
         const SizedBox(height: 18),
+        PrimaryButton(
+          label: 'Mit dem Coach chatten',
+          height: 64,
+          fontSize: 22,
+          icon: Icons.chat_bubble_outline,
+          onPressed: hasKey
+              ? () {
+                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const ChatScreen()));
+                }
+              : null,
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Frag zum Beispiel: „Erstelle mir ein Training für heute.“ Der Coach kennt deine letzten Trainings.',
+          style: bodyStyle(context, size: 13, color: c.text2),
+        ),
+        if (state.memory.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 18),
+          AppCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                const SectionLabel('Das merkt sich der Coach'),
+                const SizedBox(height: 6),
+                for (final String f in state.memory)
+                  Row(
+                    children: <Widget>[
+                      Expanded(child: Text(f, style: bodyStyle(context, size: 14))),
+                      IconButton(
+                        tooltip: 'Vergessen',
+                        onPressed: () => state.removeMemory(f),
+                        icon: Icon(Icons.close, size: 18, color: c.text2),
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 22),
+        const SectionLabel('Oder: ganzes Wochenprogramm'),
+        const SizedBox(height: 8),
         TextField(
           controller: _noteCtrl,
           enabled: !_busy,
@@ -457,9 +567,9 @@ class _CoachScreenState extends State<CoachScreen> {
           ),
         ),
         PrimaryButton(
-          label: _busy ? 'Coach arbeitet …' : 'Programm erstellen',
-          height: 64,
-          fontSize: 22,
+          label: _busy ? 'Coach arbeitet …' : 'Wochenprogramm erstellen',
+          height: 52,
+          fontSize: 19,
           onPressed: (_busy || !hasKey) ? null : _create,
         ),
         if (!hasKey && _keyLoaded)

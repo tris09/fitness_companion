@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -27,13 +28,30 @@ class AppState extends ChangeNotifier {
   String plannerMode = 'drag';
 
   /// Gemini model name. Corrected on its own when the API reports another one.
-  String coachModel = 'gemini-flash-latest';
+  String coachModel = kDefaultCoachModel;
 
   /// JSON of the last programme the coach created.
   String lastProgramJson = '';
 
   /// Answers of the coach set-up. Asked once, changed only on request.
   CoachProfile coachProfile = CoachProfile();
+  BodyProfile body = BodyProfile();
+
+  /// The last finished workouts, newest last. The coach reads them as memory.
+  List<WorkoutLog> history = <WorkoutLog>[];
+  static const int _maxHistory = 30;
+
+  /// Short facts the coach should keep in mind, e.g. 'Knie schonen'.
+  List<String> memory = <String>[];
+  static const int _maxMemory = 20;
+
+  /// Shopping lists, newest first.
+  List<ShoppingList> shopping = <ShoppingList>[];
+  ShopSettings shop = ShopSettings();
+
+  /// The coach chat, newest last.
+  List<ChatMessage> chat = <ChatMessage>[];
+  static const int _maxChat = 60;
   StretchSettings stretch = StretchSettings();
   String stretchDay = '';
   List<String> stretchDone = <String>[];
@@ -53,11 +71,28 @@ class AppState extends ChangeNotifier {
         final String mode = (j['themeMode'] as String?) ?? 'system';
         themeMode = mode == 'light' ? ThemeMode.light : (mode == 'dark' ? ThemeMode.dark : ThemeMode.system);
         plannerMode = (j['plannerMode'] as String?) == 'list' ? 'list' : 'drag';
-        coachModel = (j['coachModel'] as String?) ?? 'gemini-flash-latest';
+        coachModel = (j['coachModel'] as String?) ?? kDefaultCoachModel;
+        // Version 10: switch old saved defaults to the Lite model once.
+        if (j['modelV'] != 10) {
+          coachModel = kDefaultCoachModel;
+        }
         lastProgramJson = (j['lastProgram'] as String?) ?? '';
         if (j['coachProfile'] != null) {
           coachProfile = CoachProfile.fromJson(Map<String, dynamic>.from(j['coachProfile'] as Map), trainingStyles);
         }
+        if (j['body'] != null) {
+          body = BodyProfile.fromJson(Map<String, dynamic>.from(j['body'] as Map));
+        }
+        final List<dynamic> rawHistory = (j['history'] as List<dynamic>?) ?? <dynamic>[];
+        history = rawHistory.map((dynamic e) => WorkoutLog.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        memory = ((j['memory'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
+        final List<dynamic> rawShopping = (j['shopping'] as List<dynamic>?) ?? <dynamic>[];
+        shopping = rawShopping.map((dynamic e) => ShoppingList.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+        if (j['shop'] != null) {
+          shop = ShopSettings.fromJson(Map<String, dynamic>.from(j['shop'] as Map));
+        }
+        final List<dynamic> rawChat = (j['chat'] as List<dynamic>?) ?? <dynamic>[];
+        chat = rawChat.map((dynamic e) => ChatMessage.fromJson(Map<String, dynamic>.from(e as Map))).toList();
         if (j['stretch'] != null) {
           stretch = StretchSettings.fromJson(Map<String, dynamic>.from(j['stretch'] as Map));
         }
@@ -66,7 +101,7 @@ class AppState extends ChangeNotifier {
         stretchDone = done.map((dynamic e) => e as String).toList();
         final String? email = j['email'] as String?;
         if (email != null && email.isNotEmpty) {
-          user = await auth.signInWithEmail(email);
+          user = email == kTestEmail ? auth.testUser : auth.userFor(email);
         }
       } else {
         plans = <Plan>[_samplePlan()];
@@ -100,8 +135,15 @@ class AppState extends ChangeNotifier {
         'themeMode': mode,
         'plannerMode': plannerMode,
         'coachModel': coachModel,
+        'modelV': 10,
         'lastProgram': lastProgramJson,
         'coachProfile': coachProfile.toJson(),
+        'body': body.toJson(),
+        'history': history.map((WorkoutLog e) => e.toJson()).toList(),
+        'memory': memory,
+        'shopping': shopping.map((ShoppingList e) => e.toJson()).toList(),
+        'shop': shop.toJson(),
+        'chat': chat.map((ChatMessage e) => e.toJson()).toList(),
         'stretch': stretch.toJson(),
         'stretchDay': stretchDay,
         'stretchDone': stretchDone,
@@ -120,8 +162,46 @@ class AppState extends ChangeNotifier {
 
   // ---- Account ----
 
-  Future<void> signIn(String email) async {
-    user = await auth.signInWithEmail(email);
+  /// Each of these returns null when it worked, otherwise a message for the user.
+  Future<String?> register(String email, String password) async {
+    try {
+      user = await auth.register(email, password);
+      _changed();
+      return null;
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Die Registrierung hat nicht geklappt.';
+    }
+  }
+
+  Future<String?> signInWithPassword(String email, String password) async {
+    try {
+      user = await auth.signInWithPassword(email, password);
+      _changed();
+      return null;
+    } on AuthException catch (e) {
+      return e.message;
+    } catch (_) {
+      return 'Die Anmeldung hat nicht geklappt.';
+    }
+  }
+
+  /// Test login: skips the profile screens. Only works in debug builds.
+  void signInAsTest() {
+    if (!kDebugMode) {
+      return;
+    }
+    user = auth.testUser;
+    body = BodyProfile(weightKg: 75, heightCm: 178, age: 25, done: true);
+    coachProfile = CoachProfile(
+      styles: <String>['Ganzkörper', 'Calisthenics'],
+      goal: 'Muskelaufbau',
+      level: 'Etwas Erfahrung',
+      days: 3,
+      minutes: 45,
+      done: true,
+    );
     _changed();
   }
 
@@ -132,7 +212,7 @@ class AppState extends ChangeNotifier {
     }
     try {
       final String email = await GoogleAuth.signIn();
-      user = await auth.signInWithEmail(email);
+      user = auth.userFor(email);
       _changed();
       return null;
     } catch (_) {
@@ -153,6 +233,12 @@ class AppState extends ChangeNotifier {
     stretch = StretchSettings();
     stretchDone = <String>[];
     coachProfile = CoachProfile();
+    body = BodyProfile();
+    history = <WorkoutLog>[];
+    chat = <ChatMessage>[];
+    memory = <String>[];
+    shopping = <ShoppingList>[];
+    shop = ShopSettings();
     _changed();
     NotificationService.instance.reschedule(stretch);
   }
@@ -189,8 +275,103 @@ class AppState extends ChangeNotifier {
     _changed();
   }
 
+  void saveBody(BodyProfile b) {
+    body = b.copy()..done = true;
+    _changed();
+  }
+
+  /// Remembers a finished workout for the coach.
+  void logWorkout(Plan plan) {
+    history.add(WorkoutLog(
+      date: DateTime.now(),
+      planName: plan.name,
+      items: plan.items.map((PlanItem e) => e.copy()).toList(),
+    ));
+    if (history.length > _maxHistory) {
+      history = history.sublist(history.length - _maxHistory);
+    }
+    _changed();
+  }
+
+  void addChat(ChatMessage m) {
+    chat.add(m);
+    if (chat.length > _maxChat) {
+      chat = chat.sublist(chat.length - _maxChat);
+    }
+    _changed();
+  }
+
+  void clearChat() {
+    chat = <ChatMessage>[];
+    _changed();
+  }
+
+  /// Adds the plan of a chat message to the plan list.
+  void saveChatProgram(ChatMessage m) {
+    if (m.programJson.isEmpty || m.saved) {
+      return;
+    }
+    final CoachProgram program = CoachProgram.parse(m.programJson);
+    plans.addAll(program.toPlans(newId));
+    m.saved = true;
+    _changed();
+  }
+
+  /// Adds facts the coach wants to remember. Duplicates are skipped.
+  void addMemory(List<String> facts) {
+    for (final String f in facts) {
+      final String t = f.trim();
+      if (t.isNotEmpty && !memory.contains(t)) {
+        memory.add(t);
+      }
+    }
+    if (memory.length > _maxMemory) {
+      memory = memory.sublist(memory.length - _maxMemory);
+    }
+    _changed();
+  }
+
+  void removeMemory(String fact) {
+    memory.remove(fact);
+    _changed();
+  }
+
+  void saveShop(ShopSettings s) {
+    shop = s;
+    _changed();
+  }
+
+  /// Takes over the shopping list of a chat message. It becomes the current list.
+  void saveChatList(ChatMessage m) {
+    if (m.listJson.isEmpty || m.listSaved) {
+      return;
+    }
+    shopping.insert(0, ShoppingList.fromJson(Map<String, dynamic>.from(jsonDecode(m.listJson) as Map)));
+    if (shopping.length > 5) {
+      shopping = shopping.sublist(0, 5);
+    }
+    m.listSaved = true;
+    _changed();
+  }
+
+  void toggleShoppingItem(ShoppingItem item) {
+    item.done = !item.done;
+    _changed();
+  }
+
+  void deleteShoppingList(ShoppingList list) {
+    shopping.remove(list);
+    _changed();
+  }
+
+  /// Workouts of the last [days] days.
+  List<WorkoutLog> recentWorkouts({int days = 14}) {
+    final DateTime from = DateTime.now().subtract(Duration(days: days));
+    return history.where((WorkoutLog w) => w.date.isAfter(from)).toList();
+  }
+
   void setCoachModel(String model) {
-    coachModel = model.trim().isEmpty ? 'gemini-flash-latest' : model.trim();
+    coachModel = model.trim().isEmpty ? kDefaultCoachModel : model.trim();
     _changed();
   }
 
@@ -221,6 +402,36 @@ class AppState extends ChangeNotifier {
       stretchDay = today;
       stretchDone = <String>[];
     }
+  }
+
+  /// The plan of today: times and stretches. Empty when the plan does not run today.
+  List<({DateTime time, Stretch stretch})> get todayPlan {
+    final DateTime now = DateTime.now();
+    final DateTime day = DateTime(now.year, now.month, now.day);
+    if (!stretch.activeOn(day)) {
+      return <({DateTime time, Stretch stretch})>[];
+    }
+    final List<DateTime> slots = stretch.slotsFor(day);
+    final List<Stretch> plan = stretchPlanFor(stretch, day);
+    return <({DateTime time, Stretch stretch})>[
+      for (int i = 0; i < slots.length && i < plan.length; i++) (time: slots[i], stretch: plan[i]),
+    ];
+  }
+
+  /// Switches the plan on or off for today only.
+  void setToday(bool on) {
+    final StretchSettings s = stretch.copy();
+    s.todayKey = on ? StretchSettings.keyOf(DateTime.now()) : '';
+    updateStretch(s);
+  }
+
+  /// New random stretches for today. Times stay the same.
+  void rerollToday() {
+    final StretchSettings s = stretch.copy();
+    final String today = StretchSettings.keyOf(DateTime.now());
+    s.reroll = s.rerollKey == today ? s.reroll + 1 : 1;
+    s.rerollKey = today;
+    updateStretch(s);
   }
 
   void updateStretch(StretchSettings settings) {

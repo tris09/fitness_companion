@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
@@ -14,7 +12,6 @@ class NotificationService {
   static final NotificationService instance = NotificationService._();
 
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
-  final Random _random = Random();
   bool _ready = false;
 
   Future<void> init() async {
@@ -60,7 +57,7 @@ class NotificationService {
     }
     try {
       await _plugin.cancelAll();
-      if (!settings.enabled) {
+      if (!settings.anyActive) {
         return;
       }
       const NotificationDetails details = NotificationDetails(
@@ -73,20 +70,30 @@ class NotificationService {
         ),
         iOS: DarwinNotificationDetails(),
       );
-      final List<DateTime> times = settings.upcoming(days: 7);
+      final DateTime now = DateTime.now();
       int id = 1000;
-      for (final DateTime t in times.take(60)) {
-        final Stretch s = stretchCatalog[_random.nextInt(stretchCatalog.length)];
-        await _plugin.zonedSchedule(
-          id,
-          'Zeit für eine Pause, dehn dich! 🤸',
-          s.name,
-          tz.TZDateTime.from(t, tz.UTC),
-          details,
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-        );
-        id++;
+      for (int d = 0; d < 7 && id < 1060; d++) {
+        final DateTime day = DateTime(now.year, now.month, now.day + d);
+        if (!settings.activeOn(day)) {
+          continue;
+        }
+        final List<DateTime> slots = settings.slotsFor(day);
+        final List<Stretch> plan = stretchPlanFor(settings, day);
+        for (int i = 0; i < slots.length && i < plan.length; i++) {
+          if (!slots[i].isAfter(now)) {
+            continue;
+          }
+          await _plugin.zonedSchedule(
+            id,
+            'Dehnplan ${i + 1} von ${slots.length}: ${plan[i].name}',
+            '${plan[i].group} · ${plan[i].seconds} Sekunden. Anleitung im Dehnplan der App.',
+            tz.TZDateTime.from(slots[i], tz.UTC),
+            details,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          );
+          id++;
+        }
       }
     } catch (_) {
       // Scheduling failed. The rest of the app keeps working.

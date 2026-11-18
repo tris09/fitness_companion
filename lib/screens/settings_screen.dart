@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state.dart';
+import 'onboarding_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 
@@ -61,6 +62,15 @@ class SettingsScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
+                  SecondaryButton(
+                    label: 'Körperdaten ändern',
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(builder: (BuildContext _) => const OnboardingScreen(editing: true)),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 8),
                   SecondaryButton(
                     label: 'Abmelden',
                     onPressed: () {

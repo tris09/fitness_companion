@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../catalog.dart';
 import '../models.dart';
+import '../state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
 import 'success_screen.dart';
@@ -146,6 +147,7 @@ class _TimerScreenState extends State<TimerScreen> {
   void _next() {
     if (_index >= _steps.length - 1) {
       _ticker?.cancel();
+      AppScope.of(context).logWorkout(widget.plan);
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (BuildContext _) => SuccessScreen(plan: widget.plan)),
       );

@@ -4,10 +4,10 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import 'coach_screen.dart';
 import 'home_screen.dart';
+import 'nutrition_screen.dart';
 import 'plans_screen.dart';
-import 'stretch_screen.dart';
 
-/// Holds the five tabs and the bottom bar.
+/// Holds the four tabs and the bottom bar.
 class RootScreen extends StatefulWidget {
   const RootScreen({super.key});
 
@@ -17,11 +17,32 @@ class RootScreen extends StatefulWidget {
 
 class _RootScreenState extends State<RootScreen> {
   int _index = 0;
+  final PageController _pages = PageController();
 
-  void _go(int i) {
+  /// True while a tap on the bar moves the pages. Then the bar ignores the pages in between.
+  bool _moving = false;
+
+  @override
+  void dispose() {
+    _pages.dispose();
+    super.dispose();
+  }
+
+  /// Slides to a tab. Far jumps skip the pages in between, so the move stays short.
+  Future<void> _go(int i) async {
+    if (i == _index) {
+      return;
+    }
+    final int from = _index;
     setState(() {
       _index = i;
     });
+    _moving = true;
+    if ((i - from).abs() > 1) {
+      _pages.jumpToPage(i > from ? i - 1 : i + 1);
+    }
+    await _pages.animateToPage(i, duration: const Duration(milliseconds: 280), curve: kEase);
+    _moving = false;
   }
 
   @override
@@ -30,25 +51,31 @@ class _RootScreenState extends State<RootScreen> {
     final List<Widget> pages = <Widget>[
       HomeScreen(onOpenTab: _go),
       const PlansScreen(),
-      const StretchScreen(),
       CoachScreen(onOpenTab: _go),
-      const PlaceholderScreen(kicker: 'Kommt später', title: 'Ernährung', text: 'Hier stehen später Tagesbedarf und Einkaufsliste.'),
+      const NutritionScreen(),
     ];
-    const List<String> labels = <String>['Heute', 'Pläne', 'Dehnen', 'Coach', 'Essen'];
+    const List<String> labels = <String>['Home', 'Pläne', 'Coach', 'Essen'];
     const List<IconData> icons = <IconData>[
       Icons.home_outlined,
       Icons.list_alt,
-      Icons.accessibility_new,
       Icons.chat_bubble_outline,
       Icons.restaurant,
     ];
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: Stack(
-          fit: StackFit.expand,
+        // Swipe sideways between the tabs. Each tab keeps its state.
+        child: PageView(
+          controller: _pages,
+          onPageChanged: (int i) {
+            if (!_moving && i != _index) {
+              setState(() {
+                _index = i;
+              });
+            }
+          },
           children: <Widget>[
-            for (int i = 0; i < pages.length; i++) _TabFade(active: i == _index, child: pages[i]),
+            for (final Widget p in pages) _KeepAlive(child: p),
           ],
         ),
       ),
@@ -112,65 +139,24 @@ class _RootScreenState extends State<RootScreen> {
   }
 }
 
-/// Keeps a tab alive and fades it in or out when the user switches tabs.
-class _TabFade extends StatefulWidget {
-  final bool active;
+/// Keeps a tab alive while it is out of view in the page view.
+class _KeepAlive extends StatefulWidget {
   final Widget child;
 
-  const _TabFade({required this.active, required this.child});
+  const _KeepAlive({required this.child});
 
   @override
-  State<_TabFade> createState() => _TabFadeState();
+  State<_KeepAlive> createState() => _KeepAliveState();
 }
 
-class _TabFadeState extends State<_TabFade> with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 220),
-    value: widget.active ? 1 : 0,
-  );
-  late final Animation<double> _curve = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
-  late final Animation<Offset> _slide = Tween<Offset>(begin: const Offset(0, 0.02), end: Offset.zero).animate(_curve);
-
+class _KeepAliveState extends State<_KeepAlive> with AutomaticKeepAliveClientMixin {
   @override
-  void didUpdateWidget(_TabFade old) {
-    super.didUpdateWidget(old);
-    if (widget.active != old.active) {
-      if (widget.active) {
-        _ctrl.forward();
-      } else {
-        _ctrl.reverse();
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
+  bool get wantKeepAlive => true;
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      child: widget.child,
-      builder: (BuildContext _, Widget? child) {
-        return Offstage(
-          offstage: _ctrl.isDismissed,
-          child: TickerMode(
-            enabled: !_ctrl.isDismissed,
-            child: IgnorePointer(
-              ignoring: !widget.active,
-              child: FadeTransition(
-                opacity: _curve,
-                child: SlideTransition(position: _slide, child: child),
-              ),
-            ),
-          ),
-        );
-      },
-    );
+    super.build(context);
+    return widget.child;
   }
 }
 

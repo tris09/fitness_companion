@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'screens/login_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/root_screen.dart';
 import 'services/notifications.dart';
 import 'state.dart';
@@ -39,6 +40,12 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppState state = AppScope.of(context);
-    return state.user == null ? const LoginScreen() : const RootScreen();
+    if (state.user == null) {
+      return const LoginScreen();
+    }
+    if (!state.body.done) {
+      return const OnboardingScreen();
+    }
+    return const RootScreen();
   }
 }

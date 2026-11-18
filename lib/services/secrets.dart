@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Keeps the user's Gemini API key in the protected storage of the phone.
@@ -28,6 +30,30 @@ class Secrets {
       await _storage.delete(key: _geminiKey);
     } catch (_) {
       // Nothing to do.
+    }
+  }
+
+  static const String _accounts = 'local_accounts';
+
+  /// Local accounts: e-mail -> salt and password hash. Never the password itself.
+  static Future<Map<String, dynamic>> readAccounts() async {
+    try {
+      final String? raw = await _storage.read(key: _accounts);
+      if (raw == null || raw.isEmpty) {
+        return <String, dynamic>{};
+      }
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return <String, dynamic>{};
+    }
+  }
+
+  static Future<bool> writeAccounts(Map<String, dynamic> accounts) async {
+    try {
+      await _storage.write(key: _accounts, value: jsonEncode(accounts));
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 }

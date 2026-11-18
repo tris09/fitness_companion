@@ -4,8 +4,10 @@ import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
+import 'chat_screen.dart';
 import 'planner_screen.dart';
 import 'settings_screen.dart';
+import 'stretch_screen.dart';
 import 'timer_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -29,7 +31,7 @@ class HomeScreen extends StatelessWidget {
       children: <Widget>[
         PageHeader(
           kicker: 'Dein Tag',
-          title: 'Heute',
+          title: 'Home',
           trailing: IconButton(
             tooltip: 'Einstellungen',
             onPressed: () => _openSettings(context),
@@ -41,6 +43,39 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              AppCard(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const SectionLabel('Schnell erstellt'),
+                    const SizedBox(height: 8),
+                    Text('TRAINING FÜR HEUTE', style: heading(context, 30)),
+                    const SizedBox(height: 6),
+                    Text(
+                      state.recentWorkouts().isEmpty
+                          ? 'Der Coach plant nach deinem Profil und deinen Vorlieben.'
+                          : 'Der Coach plant nach deinen ${state.recentWorkouts().length} Trainings der letzten 2 Wochen und deinen Vorlieben.',
+                      style: bodyStyle(context, size: 14, color: c.text2),
+                    ),
+                    const SizedBox(height: 12),
+                    PrimaryButton(
+                      label: 'Jetzt erstellen',
+                      icon: Icons.bolt,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (BuildContext _) => const ChatScreen(
+                              initialPrompt: 'Erstelle mir ein optimales Training für heute. '
+                                  'Berücksichtige meine Trainings der letzten 2 Wochen, meine Vorlieben und meine Körperdaten.',
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
               AppCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,27 +116,66 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const SectionLabel('Dehnpausen'),
-                    const SizedBox(height: 8),
-                    Text(
-                      reminderLabel(state.stretch.enabled, next),
-                      style: bodyStyle(context, size: 15, weight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 12),
-                    SecondaryButton(label: 'Jetzt dehnen', onPressed: () => onOpenTab(2)),
-                  ],
-                ),
-              ),
+              _StretchTile(state: state, next: next),
               const SizedBox(height: 12),
               SecondaryButton(label: 'Alle Pläne', onPressed: () => onOpenTab(1)),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Tile on Heute that opens the stretch plan.
+class _StretchTile extends StatelessWidget {
+  final AppState state;
+  final DateTime? next;
+
+  const _StretchTile({required this.state, required this.next});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    final int total = state.todayPlan.length;
+    final int done = state.todayPlan.where((({DateTime time, Stretch stretch}) e) => state.stretchDone.contains(e.stretch.id)).length;
+    final String status = total > 0 ? 'Heute $done von $total erledigt' : 'Push mit Dehnübungen über den Tag';
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const StretchScreen()));
+      },
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: c.surface,
+          border: Border.all(color: c.border),
+          borderRadius: BorderRadius.circular(kRadius),
+        ),
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: 48,
+              height: 48,
+              color: c.accent,
+              child: Icon(Icons.accessibility_new, color: c.onAccent),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  const SectionLabel('Dehnplan'),
+                  const SizedBox(height: 4),
+                  Text(status, style: bodyStyle(context, size: 15, weight: FontWeight.w700)),
+                  if (next != null)
+                    Text(reminderLabel(true, next), style: bodyStyle(context, size: 13, color: c.text2)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: c.text2),
+          ],
+        ),
+      ),
     );
   }
 }

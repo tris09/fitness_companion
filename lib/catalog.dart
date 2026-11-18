@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'models.dart';
 
 const List<Exercise> exerciseCatalog = <Exercise>[
@@ -499,6 +501,29 @@ const List<Stretch> stretchCatalog = <Stretch>[
     steps: <String>['Arm strecken, Handfläche nach oben', 'Finger mit der anderen Hand nach unten ziehen', '20 s pro Seite'],
   ),
 ];
+
+/// The random stretches of one day. Each stretch comes from another body area
+/// as long as possible, so the day covers the whole body.
+List<Stretch> stretchPlanFor(StretchSettings settings, DateTime day) {
+  final Random rnd = Random(settings.seedFor(day));
+  final List<String> groups = stretchCatalog.map((Stretch s) => s.group).toSet().toList()..shuffle(rnd);
+  final Map<String, List<Stretch>> byGroup = <String, List<Stretch>>{};
+  for (final String g in groups) {
+    byGroup[g] = stretchCatalog.where((Stretch s) => s.group == g).toList()..shuffle(rnd);
+  }
+  final List<Stretch> out = <Stretch>[];
+  int round = 0;
+  while (out.length < settings.perDay && round < 20) {
+    for (final String g in groups) {
+      final List<Stretch> pool = byGroup[g]!;
+      if (out.length < settings.perDay && pool.isNotEmpty) {
+        out.add(pool[round % pool.length]);
+      }
+    }
+    round++;
+  }
+  return out;
+}
 
 Stretch stretchById(String id) {
   for (final Stretch s in stretchCatalog) {
