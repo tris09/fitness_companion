@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../state.dart';
 import '../theme.dart';
+import '../tutorials.dart';
+import '../widgets/tutorial_dialog.dart';
 import '../widgets/common.dart';
 import 'coach_screen.dart';
 import 'home_screen.dart';
@@ -21,6 +24,22 @@ class _RootScreenState extends State<RootScreen> {
 
   /// True while a tap on the bar moves the pages. Then the bar ignores the pages in between.
   bool _moving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Short tour on the very first start.
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (!mounted) {
+        return;
+      }
+      final AppState state = AppScope.of(context);
+      if (!state.welcomeSeen) {
+        state.markWelcomeSeen();
+        showTutorial(context, welcomeTutorial);
+      }
+    });
+  }
 
   @override
   void dispose() {

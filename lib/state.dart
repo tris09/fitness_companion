@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/coach_service.dart';
 import 'services/google_auth.dart';
 import 'services/notifications.dart';
+import 'services/secrets.dart';
 import 'training_memory.dart';
 
 /// Holds all app data and saves it on the device.
@@ -47,6 +48,12 @@ class AppState extends ChangeNotifier {
   static const int _keepDays = 14;
   static const int _keepCount = 5;
 
+  /// Workouts per week (key = Monday of the week). Kept for the streak, not deleted with the history.
+  Map<String, int> weeks = <String, int>{};
+
+  /// Best weight per exercise ever logged. Kept even when old weight entries are dropped.
+  Map<String, double> records = <String, double>{};
+
   /// Muscle group -> last training day. Kept on its own, so it survives the clean-up.
   Map<String, DateTime> muscleLast = <String, DateTime>{};
 
@@ -55,6 +62,12 @@ class AppState extends ChangeNotifier {
 
   /// Ask for the used weights after a workout. The user can switch it off.
   bool askWeights = true;
+
+  /// Two stretches before and after each workout.
+  bool warmup = true;
+
+  /// True once the welcome tips were shown.
+  bool welcomeSeen = false;
 
   /// Short facts the coach should keep in mind, e.g. 'Knie schonen'.
   List<String> memory = <String>[];
@@ -108,6 +121,10 @@ class AppState extends ChangeNotifier {
         for (final WorkoutLog w in history) {
           markTrained(muscleLast, w);
         }
+        weeks = Map<String, dynamic>.from((j['weeks'] as Map?) ?? <String, dynamic>{})
+            .map((String k, dynamic v) => MapEntry<String, int>(k, (v as num).toInt()));
+        records = Map<String, dynamic>.from((j['records'] as Map?) ?? <String, dynamic>{})
+            .map((String k, dynamic v) => MapEntry<String, double>(k, (v as num).toDouble()));
         _pruneHistory();
         final Map<String, dynamic> rawW = Map<String, dynamic>.from((j['weights'] as Map?) ?? <String, dynamic>{});
         weights = rawW.map((String k, dynamic v) => MapEntry<String, List<WeightEntry>>(
@@ -115,6 +132,8 @@ class AppState extends ChangeNotifier {
               ((v as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => WeightEntry.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
             ));
         askWeights = j['askWeights'] != false;
+        warmup = j['warmup'] != false;
+        welcomeSeen = j['welcomeSeen'] == true;
         memory = ((j['memory'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
         final List<dynamic> rawShopping = (j['shopping'] as List<dynamic>?) ?? <dynamic>[];
         shopping = rawShopping.map((dynamic e) => ShoppingList.fromJson(Map<String, dynamic>.from(e as Map))).toList();
@@ -131,7 +150,9 @@ class AppState extends ChangeNotifier {
         stretchDone = done.map((dynamic e) => e as String).toList();
         final String? email = j['email'] as String?;
         if (email != null && email.isNotEmpty) {
-          user = email == kTestEmail ? auth.testUser : auth.userFor(email);
+          user = email == kTestEmail
+              ? auth.testUser
+              : (email == kLocalUser ? const AuthUser(email: kLocalUser, isAdmin: false) : auth.userFor(email));
         }
       } else {
         plans = <Plan>[_samplePlan()];
@@ -139,6 +160,13 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       plans = <Plan>[_samplePlan()];
     }
+    // Older saves have no records yet: take them from the logged weights.
+    weights.forEach((String id, List<WeightEntry> list) {
+      final double? best = bestWeight(list);
+      if (best != null && best > (records[id] ?? 0)) {
+        records[id] = best;
+      }
+    });
     _rollDay();
   }
 
@@ -156,11 +184,10 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> _save() async {
-    try {
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final String mode = themeMode == ThemeMode.light ? 'light' : (themeMode == ThemeMode.dark ? 'dark' : 'system');
-      final Map<String, dynamic> j = <String, dynamic>{
+  /// All data of the app as one map. Used for saving and for the export.
+  Map<String, dynamic> toJson() {
+    final String mode = themeMode == ThemeMode.light ? 'light' : (themeMode == ThemeMode.dark ? 'dark' : 'system');
+    return <String, dynamic>{
         'plans': plans.map((Plan p) => p.toJson()).toList(),
         'themeMode': mode,
         'plannerMode': plannerMode,
@@ -170,10 +197,14 @@ class AppState extends ChangeNotifier {
         'coachProfile': coachProfile.toJson(),
         'body': body.toJson(),
         'history': history.map((WorkoutLog e) => e.toJson()).toList(),
+        'weeks': weeks,
+        'records': records,
         'muscleLast': muscleLast.map((String k, DateTime v) => MapEntry<String, String>(k, v.toIso8601String())),
         'memory': memory,
         'weights': weights.map((String k, List<WeightEntry> v) => MapEntry<String, dynamic>(k, v.map((WeightEntry e) => e.toJson()).toList())),
         'askWeights': askWeights,
+        'warmup': warmup,
+        'welcomeSeen': welcomeSeen,
         'shopping': shopping.map((ShoppingList e) => e.toJson()).toList(),
         'shop': shop.toJson(),
         'chat': chat.map((ChatMessage e) => e.toJson()).toList(),
@@ -182,6 +213,15 @@ class AppState extends ChangeNotifier {
         'stretchDone': stretchDone,
         'email': user?.email ?? '',
       };
+  }
+
+  /// Readable export of all data, e.g. to copy it somewhere safe.
+  String exportJson() => const JsonEncoder.withIndent('  ').convert(toJson());
+
+  Future<void> _save() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final Map<String, dynamic> j = toJson();
       await prefs.setString(_key, jsonEncode(j));
     } catch (_) {
       // Saving failed. The app keeps working with the data in memory.
@@ -260,6 +300,30 @@ class AppState extends ChangeNotifier {
     _changed();
   }
 
+  /// Local mode: no account, no password. Everything stays on this device.
+  void startLocal() {
+    user = const AuthUser(email: kLocalUser, isAdmin: false);
+    _changed();
+  }
+
+  /// Deletes all data of the app on this device, including the API key and local accounts.
+  Future<void> deleteEverything() async {
+    try {
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+    } catch (_) {
+      // Continue with the rest.
+    }
+    await Secrets.deleteAll();
+    resetData();
+    themeMode = ThemeMode.system;
+    plannerMode = 'drag';
+    lastProgramJson = '';
+    askWeights = true;
+    warmup = true;
+    await signOut();
+  }
+
   /// Admin tool: back to the sample plan and default settings. The login stays.
   void resetData() {
     plans = <Plan>[_samplePlan()];
@@ -269,6 +333,8 @@ class AppState extends ChangeNotifier {
     body = BodyProfile();
     history = <WorkoutLog>[];
     muscleLast = <String, DateTime>{};
+    weeks = <String, int>{};
+    records = <String, double>{};
     chat = <ChatMessage>[];
     memory = <String>[];
     weights = <String, List<WeightEntry>>{};
@@ -324,6 +390,8 @@ class AppState extends ChangeNotifier {
     );
     history.add(w);
     markTrained(muscleLast, w);
+    final String wk = weekKey(w.date);
+    weeks[wk] = (weeks[wk] ?? 0) + 1;
     _pruneHistory();
     _changed();
   }
@@ -342,6 +410,13 @@ class AppState extends ChangeNotifier {
     }
     history = kept;
   }
+
+  /// Workouts per week the user aims for.
+  int get weekGoal => coachProfile.done && !coachProfile.aiDecides ? coachProfile.days : 3;
+
+  int get workoutsThisWeek => weeks[weekKey(DateTime.now())] ?? 0;
+
+  int get streak => weekStreak(weeks, weekGoal);
 
   /// Groups not trained for a while, longest ago first.
   List<String> get dueMuscles => dueGroups(muscleLast);
@@ -375,6 +450,9 @@ class AppState extends ChangeNotifier {
     entries.forEach((String id, WeightEntry e) {
       final List<WeightEntry> list = weights.putIfAbsent(id, () => <WeightEntry>[]);
       list.add(e);
+      if (e.kg > (records[id] ?? 0)) {
+        records[id] = e.kg;
+      }
       if (list.length > 12) {
         list.removeRange(0, list.length - 12);
       }
@@ -387,6 +465,16 @@ class AppState extends ChangeNotifier {
   WeightEntry? lastWeight(String exerciseId) {
     final List<WeightEntry>? l = weights[exerciseId];
     return (l == null || l.isEmpty) ? null : l.last;
+  }
+
+  void markWelcomeSeen() {
+    welcomeSeen = true;
+    _changed();
+  }
+
+  void setWarmup(bool v) {
+    warmup = v;
+    _changed();
   }
 
   void setAskWeights(bool v) {

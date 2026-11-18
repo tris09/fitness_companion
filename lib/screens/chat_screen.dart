@@ -53,6 +53,14 @@ class _ChatScreenState extends State<ChatScreen> {
     'Einkaufsliste für diese Woche mit Angeboten',
   ];
 
+  /// Quick changes to the last answer, shown above the input once a chat runs.
+  static const List<String> _quick = <String>[
+    'Heute nur 20 Minuten',
+    'Etwas zwickt, bitte schonender',
+    'Ohne Geräte',
+    'Mehr Pause',
+  ];
+
   @override
   void dispose() {
     _input.dispose();
@@ -343,6 +351,28 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
+            if (state.chat.isNotEmpty)
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  children: <Widget>[
+                    for (final String q in _quick)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: InkWell(
+                          onTap: _busy ? null : () => _send(q),
+                          // A bounded width is needed inside a horizontal list.
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 260),
+                            child: ChipBox(text: q, height: 40, showCheck: false),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
               child: Row(

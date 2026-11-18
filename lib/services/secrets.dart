@@ -33,6 +33,15 @@ class Secrets {
     }
   }
 
+  /// Removes everything this app stored in the protected storage.
+  static Future<void> deleteAll() async {
+    try {
+      await _storage.deleteAll();
+    } catch (_) {
+      // Nothing to do.
+    }
+  }
+
   static const String _accounts = 'local_accounts';
 
   /// Local accounts: e-mail -> salt and password hash. Never the password itself.

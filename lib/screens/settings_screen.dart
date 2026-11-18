@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../state.dart';
+import 'legal_screen.dart';
 import 'onboarding_screen.dart';
 import '../theme.dart';
 import '../widgets/common.dart';
@@ -61,6 +63,17 @@ class SettingsScreen extends StatelessWidget {
                       Switch(value: state.askWeights, onChanged: state.setAskWeights),
                     ],
                   ),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: Text(
+                          'Aufwärmen und Cooldown mit je 2 Dehnübungen',
+                          style: bodyStyle(context, size: 15, weight: FontWeight.w600),
+                        ),
+                      ),
+                      Switch(value: state.warmup, onChanged: state.setWarmup),
+                    ],
+                  ),
                   const SizedBox(height: 24),
                   const SectionLabel('Konto'),
                   const SizedBox(height: 8),
@@ -68,7 +81,7 @@ class SettingsScreen extends StatelessWidget {
                     children: <Widget>[
                       Expanded(
                         child: Text(
-                          state.user?.email ?? '',
+                          (state.user?.isLocal ?? false) ? 'Lokal, ohne Konto' : (state.user?.email ?? ''),
                           style: bodyStyle(context, size: 15, weight: FontWeight.w600),
                         ),
                       ),
@@ -90,6 +103,31 @@ class SettingsScreen extends StatelessWidget {
                     onPressed: () {
                       Navigator.of(context).pop();
                       state.signOut();
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  const SectionLabel('Deine Daten'),
+                  const SizedBox(height: 8),
+                  SecondaryButton(
+                    label: 'Daten exportieren',
+                    onPressed: () async {
+                      await Clipboard.setData(ClipboardData(text: state.exportJson()));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Alle Daten sind in der Zwischenablage. Füge sie z. B. in eine Notiz ein.')),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  SecondaryButton(label: 'Alle Daten löschen', onPressed: () => _confirmDelete(context, state)),
+                  const SizedBox(height: 24),
+                  const SectionLabel('Rechtliches'),
+                  const SizedBox(height: 8),
+                  SecondaryButton(
+                    label: 'Datenschutz und Impressum',
+                    onPressed: () {
+                      Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const LegalScreen()));
                     },
                   ),
                   if (admin) ...<Widget>[
@@ -116,5 +154,44 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// Two steps: open the question, then confirm. Keeping is the main button.
+  Future<void> _confirmDelete(BuildContext context, AppState state) async {
+    final AppColors c = AppColors.of(context);
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          backgroundColor: c.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius), side: BorderSide(color: c.border)),
+          title: Text('ALLES LÖSCHEN?', style: heading(ctx, 28)),
+          content: Text(
+            'Pläne, Verlauf, Gewichte, Chat, Einkaufslisten, Einstellungen, API-Schlüssel und lokale Konten '
+            'werden von diesem Handy gelöscht. Das lässt sich nicht rückgängig machen. '
+            'Exportiere vorher deine Daten, wenn du sie behalten willst.',
+            style: bodyStyle(ctx, size: 15, color: c.text2),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: <Widget>[
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                PrimaryButton(label: 'Behalten', height: 52, onPressed: () => Navigator.of(ctx).pop(false)),
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: Text('Ja, alles endgültig löschen', style: bodyStyle(ctx, size: 14, weight: FontWeight.w600, color: c.text2)),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
+    if (ok == true && context.mounted) {
+      Navigator.of(context).pop();
+      await state.deleteEverything();
+    }
   }
 }

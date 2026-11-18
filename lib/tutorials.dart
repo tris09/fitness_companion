@@ -53,3 +53,32 @@ const Tutorial geminiKeyTutorial = Tutorial(
     ),
   ],
 );
+
+/// Short tour on the first start. Text only, no pictures needed.
+const Tutorial welcomeTutorial = Tutorial(
+  title: 'Willkommen',
+  steps: <TutorialStep>[
+    TutorialStep(
+      title: 'Wischen statt suchen',
+      text: 'Unten findest du Home, Pläne, Coach und Essen. Du kannst auch einfach seitlich wischen.',
+      image: '',
+    ),
+    TutorialStep(
+      title: 'Pläne bauen',
+      text: 'Im Tab Pläne baust du dein Training. Halte Sätze, Wiederholungen oder Pause gedrückt für den Drehwähler. '
+          'Zwei Übungen verbunden ergeben ein Superset.',
+      image: '',
+    ),
+    TutorialStep(
+      title: 'Training läuft von selbst',
+      text: 'Pausen, Zeitübungen, Aufwärmen und Cooldown zählen automatisch. Nur bei festen Wiederholungen tippst du auf Satz fertig.',
+      image: '',
+    ),
+    TutorialStep(
+      title: 'Dehnplan und Coach',
+      text: 'Auf Home startest du den Dehnplan mit Erinnerungen über den Tag. Der Coach erstellt dir Pläne und Einkaufslisten, '
+          'dafür brauchst du einen kostenlosen Gemini-Schlüssel.',
+      image: '',
+    ),
+  ],
+);

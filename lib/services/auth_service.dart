@@ -12,11 +12,16 @@ import 'secrets.dart';
 const String kAdminEmail = 'tristanschnitzler@hotmail.de';
 const String kTestEmail = 'test@local.test';
 
+/// Marker for the local mode: no account, no password, data only on this device.
+const String kLocalUser = 'local';
+
 class AuthUser {
   final String email;
   final bool isAdmin;
 
   const AuthUser({required this.email, required this.isAdmin});
+
+  bool get isLocal => email == kLocalUser;
 }
 
 /// An error with a message that can be shown to the user.

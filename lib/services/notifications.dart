@@ -14,6 +14,9 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
+  /// Called when the user taps a stretch reminder. Set in main.dart.
+  void Function()? onOpenStretch;
+
   Future<void> init() async {
     if (_ready) {
       return;
@@ -26,10 +29,28 @@ class NotificationService {
         requestBadgePermission: false,
         requestSoundPermission: false,
       );
-      await _plugin.initialize(const InitializationSettings(android: android, iOS: ios));
+      await _plugin.initialize(
+        const InitializationSettings(android: android, iOS: ios),
+        onDidReceiveNotificationResponse: (NotificationResponse r) {
+          if (r.payload == 'stretch') {
+            onOpenStretch?.call();
+          }
+        },
+      );
       _ready = true;
     } catch (_) {
       _ready = false;
+    }
+  }
+
+  /// True when the app was started by a tap on a stretch reminder.
+  Future<bool> launchedFromStretch() async {
+    await init();
+    try {
+      final NotificationAppLaunchDetails? d = await _plugin.getNotificationAppLaunchDetails();
+      return (d?.didNotificationLaunchApp ?? false) && d?.notificationResponse?.payload == 'stretch';
+    } catch (_) {
+      return false;
     }
   }
 
@@ -91,6 +112,7 @@ class NotificationService {
             details,
             androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
             uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+            payload: 'stretch',
           );
           id++;
         }

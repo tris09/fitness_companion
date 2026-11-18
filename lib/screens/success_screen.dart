@@ -78,6 +78,8 @@ class _SuccessScreenState extends State<SuccessScreen> {
                       last == null ? '${item.sets} × ${item.reps} · noch kein Gewicht' : '${item.sets} × ${item.reps} · zuletzt ${formatKg(last.kg)}',
                       style: bodyStyle(context, size: 13, color: c.text2),
                     ),
+                    if (entered != null && state.records[item.exerciseId] != null && entered > state.records[item.exerciseId]!)
+                      Text('Neuer Rekord!', style: bodyStyle(context, size: 13, weight: FontWeight.w700, color: c.accentText)),
                   ],
                 ),
               ),

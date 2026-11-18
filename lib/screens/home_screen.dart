@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets/common.dart';
 import 'chat_screen.dart';
 import 'planner_screen.dart';
+import 'progress_screen.dart';
 import 'settings_screen.dart';
 import 'stretch_screen.dart';
 import 'timer_screen.dart';
@@ -117,6 +118,7 @@ class HomeScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 12),
+              _WeekCard(state: state),
               _DueCard(state: state),
               _StretchTile(state: state, next: next),
               const SizedBox(height: 12),
@@ -234,6 +236,71 @@ class _DueCard extends StatelessWidget {
               },
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Weekly goal, streak and the way to the progress page.
+class _WeekCard extends StatelessWidget {
+  final AppState state;
+
+  const _WeekCard({required this.state});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    final int done = state.workoutsThisWeek;
+    final int goal = state.weekGoal;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const ProgressScreen()));
+        },
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: c.surface,
+            border: Border.all(color: c.border),
+            borderRadius: BorderRadius.circular(kRadius),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  const Expanded(child: SectionLabel('Wochenziel')),
+                  if (state.streak > 0)
+                    Text('Serie: ${state.streak} ${state.streak == 1 ? 'Woche' : 'Wochen'}',
+                        style: bodyStyle(context, size: 13, weight: FontWeight.w700, color: c.accentText)),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text('$done VON $goal EINHEITEN', style: heading(context, 26)),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  for (int i = 0; i < goal; i++)
+                    Expanded(
+                      child: Container(
+                        height: 8,
+                        margin: EdgeInsets.only(right: i == goal - 1 ? 0 : 4),
+                        color: i < done ? c.accent : c.border,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: <Widget>[
+                  Expanded(child: Text('Fortschritt und Gewichte ansehen', style: bodyStyle(context, size: 14, color: c.text2))),
+                  Icon(Icons.chevron_right, color: c.text2),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

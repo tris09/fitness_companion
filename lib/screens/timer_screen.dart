@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../catalog.dart';
 import '../models.dart';
@@ -11,27 +13,63 @@ import '../training_memory.dart';
 import '../widgets/common.dart';
 import 'success_screen.dart';
 
+enum _Kind { warmup, work, rest, cooldown }
+
 class _Step {
-  final bool rest;
-  final Exercise exercise;
+  final _Kind kind;
+
+  /// Set for work and rest steps. For a rest it is the exercise that comes next.
+  final Exercise? exercise;
+
+  /// Set for warm-up and cool-down steps.
+  final Stretch? stretch;
   final int set;
   final int sets;
   final int reps;
 
-  /// 0 = the user confirms the step by hand, otherwise a countdown in seconds.
+  /// 0 = the user ends the set with a tap (fixed reps), otherwise a countdown in seconds.
   final int seconds;
 
-  _Step({
-    required this.rest,
-    required this.exercise,
-    required this.set,
-    required this.sets,
-    required this.reps,
+  /// True for a time-limited set: it counts down, but a tap ends it early.
+  final bool limit;
+
+  /// Position inside warm-up or cool-down, e.g. 1 of 2.
+  final int part;
+  final int parts;
+
+  const _Step({
+    required this.kind,
+    this.exercise,
+    this.stretch,
+    this.set = 0,
+    this.sets = 0,
+    this.reps = 0,
     required this.seconds,
+    this.limit = false,
+    this.part = 0,
+    this.parts = 0,
   });
+
+  _Step withSeconds(int s) => _Step(
+        kind: kind,
+        exercise: exercise,
+        stretch: stretch,
+        set: set,
+        sets: sets,
+        reps: reps,
+        seconds: s,
+        limit: limit,
+        part: part,
+        parts: parts,
+      );
+
+  bool get isRest => kind == _Kind.rest;
+  bool get isStretch => kind == _Kind.warmup || kind == _Kind.cooldown;
 }
 
-/// Runs a plan step by step. Rests and timed exercises count down on their own.
+/// Runs a plan step by step. Everything with a time runs on its own:
+/// rests, timed exercises, time-limited sets, warm-up and cool-down.
+/// Only sets with fixed reps wait for a tap, because only the user knows when they are done.
 class TimerScreen extends StatefulWidget {
   final Plan plan;
 
@@ -42,7 +80,8 @@ class TimerScreen extends StatefulWidget {
 }
 
 class _TimerScreenState extends State<TimerScreen> {
-  late List<_Step> _steps;
+  List<_Step> _steps = <_Step>[];
+  bool _built = false;
   int _index = 0;
   int _remaining = 0;
   bool _paused = false;
@@ -52,17 +91,55 @@ class _TimerScreenState extends State<TimerScreen> {
   @override
   void initState() {
     super.initState();
-    _steps = _buildSteps(widget.plan);
-    _enter(0);
+    // Keep the screen on during the workout.
+    WakelockPlus.enable().catchError((Object _) {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_built) {
+      _built = true;
+      _steps = _buildSteps(widget.plan, AppScope.of(context).warmup);
+      if (_steps.isNotEmpty) {
+        _enter(0);
+      }
+    }
   }
 
   @override
   void dispose() {
     _ticker?.cancel();
+    WakelockPlus.disable().catchError((Object _) {});
     super.dispose();
   }
 
-  static List<_Step> _buildSteps(Plan plan) {
+  /// Two stretches from different body areas, chosen by chance.
+  static List<Stretch> _pickStretches(Random rnd, Set<String> avoid) {
+    final List<Stretch> pool = stretchCatalog.where((Stretch s) => !avoid.contains(s.id)).toList()..shuffle(rnd);
+    final List<Stretch> out = <Stretch>[];
+    for (final Stretch s in pool) {
+      if (out.length == 2) {
+        break;
+      }
+      if (out.every((Stretch o) => o.group != s.group)) {
+        out.add(s);
+      }
+    }
+    return out;
+  }
+
+  static List<_Step> _buildSteps(Plan plan, bool warmup) {
+    final List<_Step> out = <_Step>[];
+    final Random rnd = Random();
+    List<Stretch> before = <Stretch>[];
+    if (warmup && plan.items.isNotEmpty) {
+      before = _pickStretches(rnd, <String>{});
+      for (int i = 0; i < before.length; i++) {
+        out.add(_Step(kind: _Kind.warmup, stretch: before[i], seconds: before[i].seconds, part: i + 1, parts: before.length));
+      }
+    }
+
     // Items linked as a superset form one group and are done back to back.
     final List<List<PlanItem>> groups = <List<PlanItem>>[];
     List<PlanItem> current = <PlanItem>[];
@@ -77,14 +154,11 @@ class _TimerScreenState extends State<TimerScreen> {
       groups.add(current);
     }
 
-    final List<_Step> out = <_Step>[];
     for (int g = 0; g < groups.length; g++) {
       final List<PlanItem> group = groups[g];
       int rounds = 0;
       for (final PlanItem it in group) {
-        if (it.sets > rounds) {
-          rounds = it.sets;
-        }
+        rounds = max(rounds, it.sets);
       }
       for (int r = 1; r <= rounds; r++) {
         for (final PlanItem it in group) {
@@ -92,21 +166,31 @@ class _TimerScreenState extends State<TimerScreen> {
             continue;
           }
           final Exercise ex = exerciseById(it.exerciseId);
-          out.add(_Step(rest: false, exercise: ex, set: r, sets: it.sets, reps: it.reps, seconds: ex.timed ? it.reps : 0));
-        }
-        final bool veryLast = g == groups.length - 1 && r == rounds;
-        // A rest is always required between sets, at least 10 s.
-        final int rest = group.last.restSec < 10 ? 10 : group.last.restSec;
-        if (!veryLast && rest > 0) {
+          final bool limit = !ex.timed && it.workSec > 0;
           out.add(_Step(
-            rest: true,
-            exercise: exerciseById(group.last.exerciseId),
+            kind: _Kind.work,
+            exercise: ex,
             set: r,
-            sets: rounds,
-            reps: 0,
-            seconds: rest,
+            sets: it.sets,
+            reps: it.reps,
+            seconds: ex.timed ? it.reps : (limit ? it.workSec : 0),
+            limit: limit,
           ));
         }
+        final bool veryLast = g == groups.length - 1 && r == rounds;
+        if (!veryLast) {
+          // A rest is always required between sets, at least 10 s.
+          final int rest = max(10, group.last.restSec);
+          final PlanItem nextItem = r < rounds ? group.first : groups[g + 1].first;
+          out.add(_Step(kind: _Kind.rest, exercise: exerciseById(nextItem.exerciseId), set: r, sets: rounds, seconds: rest));
+        }
+      }
+    }
+
+    if (warmup && plan.items.isNotEmpty) {
+      final List<Stretch> after = _pickStretches(rnd, before.map((Stretch s) => s.id).toSet());
+      for (int i = 0; i < after.length; i++) {
+        out.add(_Step(kind: _Kind.cooldown, stretch: after[i], seconds: after[i].seconds, part: i + 1, parts: after.length));
       }
     }
     return out;
@@ -137,8 +221,14 @@ class _TimerScreenState extends State<TimerScreen> {
       final int left = ms <= 0 ? 0 : (ms / 1000).ceil();
       if (left <= 0) {
         HapticFeedback.heavyImpact();
+        SystemSound.play(SystemSoundType.alert);
         _next();
       } else if (left != _remaining) {
+        // Short signal in the last 3 seconds, so the screen does not have to be watched.
+        if (left <= 3) {
+          HapticFeedback.mediumImpact();
+          SystemSound.play(SystemSoundType.click);
+        }
         setState(() {
           _remaining = left;
         });
@@ -158,6 +248,17 @@ class _TimerScreenState extends State<TimerScreen> {
     setState(() {
       _enter(_index + 1);
     });
+  }
+
+  /// Ends a time-limited set early. The time left is added to the next rest.
+  void _finishEarly() {
+    final int left = _remaining;
+    final int nextIndex = _index + 1;
+    if (left > 0 && nextIndex < _steps.length && _steps[nextIndex].isRest) {
+      _steps[nextIndex] = _steps[nextIndex].withSeconds(_steps[nextIndex].seconds + left);
+    }
+    HapticFeedback.mediumImpact();
+    _next();
   }
 
   void _prev() {
@@ -183,9 +284,56 @@ class _TimerScreenState extends State<TimerScreen> {
     });
   }
 
+  String _info(_Step step) {
+    if (step.kind == _Kind.warmup) {
+      return 'Aufwärmen ${step.part} von ${step.parts}';
+    }
+    if (step.kind == _Kind.cooldown) {
+      return 'Cooldown ${step.part} von ${step.parts}';
+    }
+    if (step.isRest) {
+      return 'Als Nächstes';
+    }
+    final Exercise ex = step.exercise!;
+    if (ex.timed) {
+      return 'Satz ${step.set} von ${step.sets} · ${step.reps} s halten';
+    }
+    if (step.limit) {
+      return 'Satz ${step.set} von ${step.sets} · Ziel ${step.reps} Wdh';
+    }
+    return 'Satz ${step.set} von ${step.sets} · ${step.reps} Wdh';
+  }
+
+  String _bigLabel(_Step step) {
+    if (step.isRest) {
+      return _paused ? 'Pause angehalten' : 'Pause';
+    }
+    if (step.isStretch) {
+      return 'Dehnen · halten';
+    }
+    if (step.exercise!.timed) {
+      return 'Halten';
+    }
+    return step.limit ? 'So viele wie möglich' : 'Wiederholungen';
+  }
+
+  String _nextText(_Step? upcoming) {
+    if (upcoming == null) {
+      return 'Danach: fertig';
+    }
+    if (upcoming.isRest) {
+      return 'Danach: Pause ${formatRest(upcoming.seconds)}';
+    }
+    if (upcoming.isStretch) {
+      return 'Danach: ${upcoming.stretch!.name}';
+    }
+    return 'Danach automatisch: ${upcoming.exercise!.name}, Satz ${upcoming.set}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppColors c = AppColors.of(context);
+    final AppState state = AppScope.of(context);
     if (_steps.isEmpty) {
       return Scaffold(
         body: SafeArea(
@@ -208,25 +356,26 @@ class _TimerScreenState extends State<TimerScreen> {
     final bool countdown = step.seconds > 0;
     final double progress = (_index + 1) / _steps.length;
 
-    String info;
-    if (step.rest) {
-      info = 'Pause nach Satz ${step.set}';
-    } else if (step.exercise.timed) {
-      info = 'Satz ${step.set} von ${step.sets} · ${step.reps} s halten';
-    } else {
-      info = 'Satz ${step.set} von ${step.sets} · ${step.reps} Wdh';
-    }
+    // During a rest the card already shows the exercise that comes next.
+    final String title = step.isStretch ? step.stretch!.name : step.exercise!.name;
+    final String sub = step.isStretch ? step.stretch!.group : step.exercise!.muscleLabel;
+    final Exercise? weighted = step.isStretch ? null : step.exercise;
+    final double? kg = (weighted != null && usesWeight(weighted)) ? state.suggestedWeight(weighted.id) : null;
 
-    String nextText;
-    if (upcoming == null) {
-      nextText = 'Danach: fertig';
-    } else if (upcoming.rest) {
-      nextText = 'Danach: Pause ${formatRest(upcoming.seconds)}';
+    Widget primary;
+    if (step.limit) {
+      primary = PrimaryButton(label: 'Satz fertig', icon: Icons.check, height: 88, fontSize: 28, onPressed: _finishEarly);
+    } else if (countdown) {
+      primary = PrimaryButton(
+        label: _paused ? 'Weiter' : 'Pausieren',
+        icon: _paused ? Icons.play_arrow : Icons.pause,
+        height: 88,
+        fontSize: 28,
+        onPressed: _togglePause,
+      );
     } else {
-      nextText = 'Danach automatisch: ${upcoming.exercise.name}, Satz ${upcoming.set}';
+      primary = PrimaryButton(label: 'Satz fertig', icon: Icons.check, height: 88, fontSize: 28, onPressed: _next);
     }
-
-    final Exercise shown = step.rest && upcoming != null ? upcoming.exercise : step.exercise;
 
     return Scaffold(
       body: SafeArea(
@@ -253,27 +402,21 @@ class _TimerScreenState extends State<TimerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     AppCard(
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: <Widget>[
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: <Widget>[
-                                SectionLabel(step.rest ? 'Als Nächstes' : info),
-                                const SizedBox(height: 6),
-                                Text(shown.name.toUpperCase(), style: heading(context, 32)),
-                                const SizedBox(height: 4),
-                                Text(shown.muscleLabel, style: bodyStyle(context, size: 13, color: c.text2)),
-                                if (usesWeight(shown) && AppScope.of(context).suggestedWeight(shown.id) != null) ...<Widget>[
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    'Gewicht: ${formatKg(AppScope.of(context).suggestedWeight(shown.id)!)}',
-                                    style: bodyStyle(context, size: 15, weight: FontWeight.w700, color: c.accentText),
-                                  ),
-                                ],
-                              ],
+                          SectionLabel(_info(step)),
+                          const SizedBox(height: 6),
+                          Text(title.toUpperCase(), style: heading(context, 32)),
+                          const SizedBox(height: 4),
+                          Text(sub, style: bodyStyle(context, size: 13, color: c.text2)),
+                          if (kg != null) ...<Widget>[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Gewicht: ${formatKg(kg)}',
+                              style: bodyStyle(context, size: 15, weight: FontWeight.w700, color: c.accentText),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
@@ -281,10 +424,7 @@ class _TimerScreenState extends State<TimerScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: <Widget>[
-                          SectionLabel(
-                            countdown ? (step.rest ? (_paused ? 'Pause angehalten' : 'Pause') : 'Halten') : 'Wiederholungen',
-                            color: c.accentText,
-                          ),
+                          SectionLabel(_bigLabel(step), color: c.accentText),
                           const SizedBox(height: 6),
                           FittedBox(
                             fit: BoxFit.scaleDown,
@@ -296,17 +436,20 @@ class _TimerScreenState extends State<TimerScreen> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(nextText, textAlign: TextAlign.center, style: bodyStyle(context, size: 14, color: c.text2)),
+                          Text(_nextText(upcoming), textAlign: TextAlign.center, style: bodyStyle(context, size: 14, color: c.text2)),
+                          if (step.limit)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                'Früher fertig? Die restliche Zeit kommt zur Pause dazu.',
+                                textAlign: TextAlign.center,
+                                style: bodyStyle(context, size: 13, color: c.text3),
+                              ),
+                            ),
                         ],
                       ),
                     ),
-                    PrimaryButton(
-                      label: countdown ? (_paused ? 'Weiter' : 'Pausieren') : 'Satz fertig',
-                      icon: countdown ? (_paused ? Icons.play_arrow : Icons.pause) : Icons.check,
-                      height: 88,
-                      fontSize: 28,
-                      onPressed: countdown ? _togglePause : _next,
-                    ),
+                    primary,
                     const SizedBox(height: 12),
                     Row(
                       children: <Widget>[

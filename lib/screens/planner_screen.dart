@@ -29,6 +29,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
   static const List<int> _repOptions = <int>[5, 6, 8, 10, 12, 15, 20, 25];
   static const List<int> _timeOptions = <int>[20, 30, 45, 60, 90, 120];
   static const List<int> _restOptions = <int>[30, 60, 90, 120];
+  static const List<int> _limitOptions = <int>[0, 30, 45, 60, 90, 120];
 
   @override
   void initState() {
@@ -129,6 +130,21 @@ class _PlannerScreenState extends State<PlannerScreen> {
     if (picked != null && mounted) {
       setState(() {
         item.reps = picked;
+      });
+    }
+  }
+
+  Future<void> _wheelLimit(PlanItem item) async {
+    final int? picked = await showWheelPicker(
+      context,
+      title: 'Zeitlimit pro Satz',
+      values: numberRange(0, 300, step: 5),
+      initial: item.workSec,
+      label: (int v) => v == 0 ? 'Kein Zeitlimit' : 'Max ${formatRest(v)}',
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        item.workSec = picked;
       });
     }
   }
@@ -387,6 +403,19 @@ class _PlannerScreenState extends State<PlannerScreen> {
                   },
                   onWheel: () => _wheelReps(item, ex),
                 ),
+                // Time limit: "as many reps as you can, at most X s". Not for exercises held for time.
+                if (!ex.timed)
+                  _menuChip(
+                    text: item.workSec == 0 ? 'Kein Zeitlimit' : 'Max ${formatRest(item.workSec)}',
+                    values: _limitOptions,
+                    label: (int v) => v == 0 ? 'Kein Zeitlimit' : 'Max ${formatRest(v)}',
+                    onSelected: (int v) {
+                      setState(() {
+                        item.workSec = v;
+                      });
+                    },
+                    onWheel: () => _wheelLimit(item),
+                  ),
                 // The pause chip stays in place for supersets, so the block keeps its layout.
                 AnimatedSwitcher(
                   duration: kFast,

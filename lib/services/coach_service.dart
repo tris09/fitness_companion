@@ -47,6 +47,12 @@ class CoachProgram {
 
   CoachProgram({required this.name, required this.days, required this.json});
 
+  /// 0 = no time limit, otherwise 10 to 300 s.
+  static int _limit(dynamic v) {
+    final int n = v is num ? v.toInt() : (int.tryParse('$v') ?? 0);
+    return n <= 0 ? 0 : (n < 10 ? 10 : (n > 300 ? 300 : n));
+  }
+
   static int _clamp(dynamic v, int min, int max, int fallback) {
     final int n = v is num ? v.toInt() : (int.tryParse('$v') ?? fallback);
     return n < min ? min : (n > max ? max : n);
@@ -89,6 +95,7 @@ class CoachProgram {
           // Rest 10 to 180 s. Inside a superset the next exercise follows directly anyway.
           restSec: _clamp(it['restSec'], 10, 180, 60),
           supersetWithNext: it['supersetWithNext'] == true || it['superset'] == true,
+          workSec: ex.timed ? 0 : _limit(it['workSec']),
         ));
       }
       if (items.isEmpty) {
@@ -305,6 +312,10 @@ class GeminiCoachService implements CoachService {
                       'reps': <String, dynamic>{'type': 'INTEGER', 'description': 'Wiederholungen, bei zeitbasierten Übungen Sekunden'},
                       'restSec': <String, dynamic>{'type': 'INTEGER'},
                       'supersetWithNext': <String, dynamic>{'type': 'BOOLEAN'},
+                      'workSec': <String, dynamic>{
+                        'type': 'INTEGER',
+                        'description': 'Zeitlimit pro Satz in Sekunden für "so viele Wdh wie möglich", sonst 0',
+                      },
                     },
                     'required': <String>['exerciseId', 'sets', 'reps', 'restSec'],
                   },

@@ -105,6 +105,36 @@ List<String> dueGroups(Map<String, DateTime> last, {int days = 6}) {
   return due;
 }
 
+/// Key of the week a day belongs to: the date of its Monday, e.g. '2026-11-16'.
+String weekKey(DateTime d) {
+  final DateTime monday = DateTime(d.year, d.month, d.day).subtract(Duration(days: d.weekday - 1));
+  return '${monday.year}-${monday.month}-${monday.day}';
+}
+
+/// Weeks in a row that reached the goal. The current week counts once it is reached,
+/// an unfinished current week does not break the streak.
+int weekStreak(Map<String, int> weeks, int goal) {
+  if (goal <= 0) {
+    return 0;
+  }
+  final DateTime now = DateTime.now();
+  int streak = (weeks[weekKey(now)] ?? 0) >= goal ? 1 : 0;
+  DateTime day = now.subtract(const Duration(days: 7));
+  while ((weeks[weekKey(day)] ?? 0) >= goal) {
+    streak++;
+    day = day.subtract(const Duration(days: 7));
+  }
+  return streak;
+}
+
+/// Highest weight ever logged for an exercise. Null if none.
+double? bestWeight(List<WeightEntry> entries) {
+  if (entries.isEmpty) {
+    return null;
+  }
+  return entries.map((WeightEntry e) => e.kg).reduce((double a, double b) => a > b ? a : b);
+}
+
 /// Short text for a date: heute, gestern, vor 5 Tagen.
 String agoText(DateTime? d) {
   if (d == null) {

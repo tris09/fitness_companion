@@ -78,6 +78,10 @@ class _TutorialPopupState extends State<_TutorialPopup> {
 
   Widget _picture(TutorialStep step) {
     final AppColors c = AppColors.of(context);
+    // Steps without a picture (empty path) show text only.
+    if (step.image.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return InkWell(
       onTap: () => _zoom(step),
       child: Container(

@@ -190,6 +190,17 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
             const SizedBox(height: 12),
             SecondaryButton(label: 'Mit Google anmelden', height: 56, onPressed: _busy ? null : _google),
+            const SizedBox(height: 12),
+            SecondaryButton(
+              label: 'Ohne Konto starten',
+              height: 56,
+              onPressed: _busy ? null : () => AppScope.of(context).startLocal(),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Ohne Konto bleibt alles auf diesem Handy. Kein Passwort nötig. Ein Konto kannst du später anlegen.',
+              style: bodyStyle(context, size: 13, color: c.text2),
+            ),
             if (kDebugMode) ...<Widget>[
               const SizedBox(height: 12),
               SecondaryButton(

@@ -80,6 +80,7 @@ String buildCoachSystem(AppState state, {OfferInfo? offers}) {
   s.writeln('- Berücksichtige die letzten Trainings: Muskelgruppen, die gestern oder vorgestern dran waren, nicht gleich wieder voll belasten.');
   s.writeln('- Nutze nur Übungen aus der Funktion (exerciseId). Passe Dauer an: etwa 6 bis 8 Minuten pro Übung inklusive Pausen.');
   s.writeln('- sets 1 bis 6; reps in Wiederholungen, bei zeitbasierten Übungen in Sekunden; restSec 10 bis 180 (ohne Pause nur über supersetWithNext).');
+  s.writeln('- workSec > 0 macht einen Satz zum Zeit-Satz: so viele Wiederholungen wie möglich, höchstens workSec Sekunden. reps ist dann das Ziel. Nur wenn es zum Wunsch passt.');
   s.writeln('- Schreibe zusätzlich ein bis drei Sätze, warum der Plan so aufgebaut ist.');
   s.writeln('- Wenn die Person eine Einkaufsliste möchte, rufe create_shopping_list auf. Mengen für die genannte Zeit, passend zu Ziel und Körpergewicht. Ordne jede Zutat einer Kategorie zu.');
   s.writeln('- Wenn Angebote unten stehen, bevorzuge passende Angebote und trage Markt und Preis in offer ein. Erfinde keine Angebote oder Preise.');

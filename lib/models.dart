@@ -38,12 +38,18 @@ class PlanItem {
   /// true = no rest after this item, the next item follows directly.
   bool supersetWithNext;
 
+  /// Time limit per set in seconds ("as many as you can, at most X s").
+  /// 0 = normal set with fixed reps. Then [reps] is the target shown as info.
+  /// Time not used is added to the following rest.
+  int workSec;
+
   PlanItem({
     required this.exerciseId,
     this.sets = 3,
     this.reps = 10,
     this.restSec = 60,
     this.supersetWithNext = false,
+    this.workSec = 0,
   });
 
   PlanItem copy() {
@@ -53,6 +59,7 @@ class PlanItem {
       reps: reps,
       restSec: restSec,
       supersetWithNext: supersetWithNext,
+      workSec: workSec,
     );
   }
 
@@ -63,6 +70,7 @@ class PlanItem {
       'reps': reps,
       'restSec': restSec,
       'superset': supersetWithNext,
+      'workSec': workSec,
     };
   }
 
@@ -73,6 +81,7 @@ class PlanItem {
       reps: (j['reps'] as num?)?.toInt() ?? 10,
       restSec: (j['restSec'] as num?)?.toInt() ?? 60,
       supersetWithNext: (j['superset'] as bool?) ?? false,
+      workSec: (j['workSec'] as num?)?.toInt() ?? 0,
     );
   }
 }
