@@ -96,7 +96,8 @@ String buildCoachSystem(AppState state, {OfferInfo? offers, CoachTopic topic = C
   s.writeln('Heute: ${_weekdays[now.weekday - 1]}, ${_date(now)}${now.year}.');
   s.writeln('Person: ${bodyTrendLine(state)}; ${b.heightCm} cm; ${b.age} Jahre.');
   if (p.aiDecides || !p.done) {
-    s.writeln('Ziel und Umfang: lässt dich entscheiden, passend zu Daten und Verlauf; Wahl kurz erklären.');
+    s.writeln('Coach entscheidet: Wähle Ziel, Stil und Umfang selbst anhand des Trainingsverlaufs (Häufigkeit, Muskelgruppen, Gewichte) '
+        'und der Körperdaten; Wahl kurz erklären.');
   } else {
     s.writeln('Ziel ${p.goal}; Erfahrung ${p.level}; Stile ${p.styles.join(', ')}; ${p.days} Tage/Woche à ${p.minutes} min.');
   }
@@ -119,6 +120,8 @@ String buildCoachSystem(AppState state, {OfferInfo? offers, CoachTopic topic = C
   s.writeln('Regeln:');
   s.writeln('- Persönliche dauerhafte Vorliebe oder Einschränkung genannt: remember aufrufen (ein kurzer Fakt pro Eintrag).');
   s.writeln('- Keine Diagnosen. Bei Schmerzen oder Vorerkrankungen auf Ärztin oder Arzt verweisen.');
+  s.writeln('- Will die Person Ziele, Umfang oder Methode ändern, oder passt das Training laut Verlauf nicht mehr zu den Einstellungen: '
+      'propose_coach_settings aufrufen (nur geänderte Felder, ein Satz Begründung). Nichts gilt, bevor sie bestätigt.');
   if (training) {
     s.writeln('- Plan oder Training gewünscht: create_training_plan aufrufen, den Plan nicht als Text schreiben. Für heute genau ein Tag.');
     s.writeln('- Nennt die Person Tage oder Daten: pro Tag date (JJJJ-MM-TT) setzen; diese Pläne stehen nur im Kalender. '

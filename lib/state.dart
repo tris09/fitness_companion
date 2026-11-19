@@ -104,6 +104,9 @@ class AppState extends ChangeNotifier {
   /// False until the user went through the feature choice once.
   bool featuresChosen = false;
 
+  /// True once the look was chosen at registration (step 2).
+  bool themeChosen = false;
+
   /// Order of the movable blocks on Home. News stays below them.
   List<String> homeOrder = List<String>.of(kHomeBlocks);
 
@@ -213,6 +216,8 @@ class AppState extends ChangeNotifier {
         }
         // Users from before the feature choice already set everything up: do not ask again.
         featuresChosen = j['featuresChosen'] == true || j['features'] == null && (j['body'] != null);
+        // Users from before this step keep their look and skip it.
+        themeChosen = j['themeChosen'] == true || featuresChosen;
         final List<String> order = ((j['homeOrder'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
         homeOrder = _validOrder(order);
         warmup = j['warmup'] != false;
@@ -302,6 +307,7 @@ class AppState extends ChangeNotifier {
         'summaryWeek': summaryWeek,
         'features': features.toJson(),
         'featuresChosen': featuresChosen,
+        'themeChosen': themeChosen,
         'homeOrder': homeOrder,
         'warmup': warmup,
         'welcomeSeen': welcomeSeen,
@@ -431,6 +437,7 @@ class AppState extends ChangeNotifier {
     weeklySummary = false;
     features = AppFeatures();
     featuresChosen = false;
+    themeChosen = false;
     homeOrder = List<String>.of(kHomeBlocks);
     warmup = true;
     await signOut();
@@ -611,11 +618,13 @@ class AppState extends ChangeNotifier {
   }
 
   /// Remembers a finished workout for the coach.
-  void logWorkout(Plan plan) {
+  void logWorkout(Plan plan, {int minutes = 0}) {
     final WorkoutLog w = WorkoutLog(
       date: DateTime.now(),
       planName: plan.name,
       items: plan.items.map((PlanItem e) => e.copy()).toList(),
+      // Implausible durations (timer left open) fall back to the plan estimate.
+      minutes: minutes > 0 && minutes <= 240 ? minutes : plan.estimatedMinutes,
     );
     history.add(w);
     markTrained(muscleLast, w);
@@ -664,6 +673,38 @@ class AppState extends ChangeNotifier {
   }
 
   /// Adds the plan of a chat message to the plan list.
+  /// Applies or rejects a settings proposal of the coach. Only the user's tap changes anything.
+  void answerSettingsProposal(ChatMessage m, bool accept) {
+    if (m.settingsJson.isEmpty || m.settingsState.isNotEmpty) {
+      return;
+    }
+    if (accept) {
+      final Map<String, dynamic> j = Map<String, dynamic>.from(jsonDecode(m.settingsJson) as Map);
+      final CoachProfile p = coachProfile.copy();
+      if (j['aiDecides'] is bool) {
+        p.aiDecides = j['aiDecides'] as bool;
+      }
+      if (j['goal'] is String) {
+        p.goal = j['goal'] as String;
+      }
+      if (j['level'] is String) {
+        p.level = j['level'] as String;
+      }
+      if (j['days'] is num) {
+        p.days = (j['days'] as num).toInt();
+      }
+      if (j['minutes'] is num) {
+        p.minutes = (j['minutes'] as num).toInt();
+      }
+      if (j['styles'] is List) {
+        p.styles = (j['styles'] as List<dynamic>).map((dynamic e) => '$e').toList();
+      }
+      saveCoachProfile(p);
+    }
+    m.settingsState = accept ? 'accepted' : 'declined';
+    _changed();
+  }
+
   void saveChatProgram(ChatMessage m) {
     if (m.programJson.isEmpty || m.saved) {
       return;
@@ -825,6 +866,11 @@ class AppState extends ChangeNotifier {
 
   void setHighContrast(bool v) {
     highContrast = v;
+    _changed();
+  }
+
+  void markThemeChosen() {
+    themeChosen = true;
     _changed();
   }
 

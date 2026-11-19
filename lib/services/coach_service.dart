@@ -193,7 +193,11 @@ class CoachReply {
   /// Facts the coach wants to remember.
   final List<String> remember;
 
-  CoachReply({required this.text, this.program, this.listJson = '', List<String>? remember})
+  /// Cleaned JSON of a proposed change of the coach settings, or empty.
+  /// Nothing changes until the user confirms it.
+  final String settingsJson;
+
+  CoachReply({required this.text, this.program, this.listJson = '', List<String>? remember, this.settingsJson = ''})
       : remember = remember ?? <String>[];
 }
 
@@ -420,6 +424,67 @@ class GeminiCoachService implements CoachService {
     };
   }
 
+  /// Proposal to change goal, method or volume. The user has to confirm it in the app.
+  static Map<String, dynamic> _settingsFunction() {
+    return <String, dynamic>{
+      'name': 'propose_coach_settings',
+      'description': 'Schlägt neue Coach-Einstellungen vor (Ziel, Erfahrung, Umfang, Stile oder "Coach entscheidet"). '
+          'Die Person muss in der App bestätigen. Nur die Felder angeben, die sich ändern sollen.',
+      'parameters': <String, dynamic>{
+        'type': 'OBJECT',
+        'properties': <String, dynamic>{
+          'aiDecides': <String, dynamic>{'type': 'BOOLEAN', 'description': 'true = der Coach wählt Ziel, Stil und Umfang selbst nach dem Trainingsverlauf'},
+          'goal': <String, dynamic>{'type': 'STRING', 'enum': kCoachGoals},
+          'level': <String, dynamic>{'type': 'STRING', 'enum': kCoachLevels},
+          'days': <String, dynamic>{'type': 'INTEGER', 'description': 'Trainingstage pro Woche, 2 bis 6'},
+          'minutes': <String, dynamic>{'type': 'INTEGER', 'description': 'Minuten pro Einheit: 30, 45, 60 oder 90'},
+          'styles': <String, dynamic>{
+            'type': 'ARRAY',
+            'items': <String, dynamic>{'type': 'STRING', 'enum': trainingStyles},
+          },
+          'reason': <String, dynamic>{'type': 'STRING', 'description': 'Ein Satz, warum die Änderung sinnvoll ist'},
+        },
+        'required': <String>['reason'],
+      },
+    };
+  }
+
+  /// Keeps only valid values. Empty when nothing would change.
+  static String _cleanSettings(Map<String, dynamic> a) {
+    final Map<String, dynamic> out = <String, dynamic>{};
+    if (a['aiDecides'] is bool) {
+      out['aiDecides'] = a['aiDecides'];
+    }
+    if (kCoachGoals.contains(a['goal'])) {
+      out['goal'] = a['goal'];
+    }
+    if (kCoachLevels.contains(a['level'])) {
+      out['level'] = a['level'];
+    }
+    final int? days = a['days'] is num ? (a['days'] as num).toInt() : null;
+    if (days != null && days >= 2 && days <= 6) {
+      out['days'] = days;
+    }
+    final int? minutes = a['minutes'] is num ? (a['minutes'] as num).toInt() : null;
+    if (minutes != null && const <int>[30, 45, 60, 90].contains(minutes)) {
+      out['minutes'] = minutes;
+    }
+    final List<String> styles = ((a['styles'] as List<dynamic>?) ?? <dynamic>[])
+        .map((dynamic e) => '$e')
+        .where((String e) => trainingStyles.contains(e))
+        .toSet()
+        .toList();
+    if (styles.isNotEmpty) {
+      out['styles'] = styles;
+    }
+    if (out.isEmpty) {
+      return '';
+    }
+    final String reason = '${a['reason'] ?? ''}'.trim();
+    out['reason'] = reason.length > 240 ? reason.substring(0, 240) : reason;
+    return jsonEncode(out);
+  }
+
   /// Keeps only usable lines and the known categories.
   static String _cleanList(Map<String, dynamic> args) {
     final ShoppingList list = ShoppingList.fromJson(args)..created = DateTime.now();
@@ -535,7 +600,7 @@ class GeminiCoachService implements CoachService {
       ],
       'tools': <dynamic>[
         <String, dynamic>{
-          'functionDeclarations': <dynamic>[_planFunction(), _listFunction(), _rememberFunction()],
+          'functionDeclarations': <dynamic>[_planFunction(), _listFunction(), _rememberFunction(), _settingsFunction()],
         },
       ],
     };
@@ -595,6 +660,7 @@ class GeminiCoachService implements CoachService {
     CoachProgram? program;
     String listJson = '';
     final List<String> remember = <String>[];
+    String settingsJson = '';
     for (final dynamic p in parts) {
       if (p is! Map) {
         continue;
@@ -613,6 +679,8 @@ class GeminiCoachService implements CoachService {
             program = CoachProgram.fromMap(args);
           case 'create_shopping_list':
             listJson = _cleanList(args);
+          case 'propose_coach_settings':
+            settingsJson = _cleanSettings(args);
           case 'remember':
             final List<dynamic> facts = (args['facts'] as List<dynamic>?) ?? <dynamic>[];
             remember.addAll(facts.map((dynamic e) => '$e'.trim()).where((String e) => e.isNotEmpty && e.length <= 120));
@@ -631,10 +699,13 @@ class GeminiCoachService implements CoachService {
     if (t.isEmpty && remember.isNotEmpty) {
       t = 'Alles klar, das merke ich mir.';
     }
+    if (t.isEmpty && settingsJson.isNotEmpty) {
+      t = 'Ich schlage dir neue Einstellungen vor. Bestätige sie, wenn sie passen.';
+    }
     if (t.isEmpty) {
       throw CoachException('Der Coach hat keine Antwort geliefert.');
     }
-    return CoachReply(text: t, program: program, listJson: listJson, remember: remember);
+    return CoachReply(text: t, program: program, listJson: listJson, remember: remember, settingsJson: settingsJson);
   }
 
   Future<http.Response> _post(String apiKey, String model, String prompt, bool jsonMode) {

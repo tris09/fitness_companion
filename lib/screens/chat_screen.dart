@@ -17,7 +17,13 @@ class ChatScreen extends StatefulWidget {
   /// Sent right away when the screen opens, e.g. from the quick button on Heute.
   final String? initialPrompt;
 
-  const ChatScreen({super.key, this.initialPrompt});
+  /// True inside the Coach tab: title bar with the settings button, no back button.
+  final bool embedded;
+
+  /// Opens the coach settings (tab only).
+  final VoidCallback? onOpenSettings;
+
+  const ChatScreen({super.key, this.initialPrompt, this.embedded = false, this.onOpenSettings});
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -46,11 +52,12 @@ class _ChatScreenState extends State<ChatScreen> {
     return t.contains('einkauf') || t.contains('angebot') || t.contains('rezept') || t.contains('essen') || t.contains('mahlzeit');
   }
 
-  static const List<String> _suggestions = <String>[
-    'Erstelle mir ein Training für heute',
-    'Plan für diese Woche',
-    'Was soll ich nach meinen letzten Trainings trainieren?',
-    'Einkaufsliste für diese Woche mit Angeboten',
+  /// Ready-made options above the input: (label, icon, message sent).
+  static const List<(String, IconData, String)> _options = <(String, IconData, String)>[
+    ('Plan für heute', Icons.bolt, 'Erstelle mir ein Training für heute'),
+    ('Woche planen', Icons.calendar_month_outlined, 'Plane meine Trainingstage für diese Woche'),
+    ('Einkaufsliste', Icons.shopping_cart_outlined, 'Einkaufsliste für diese Woche mit Angeboten'),
+    ('Meine Ziele', Icons.flag_outlined, 'Passen meine Ziele und mein Trainingsumfang noch zu meinem Verlauf?'),
   ];
 
   /// Quick changes to the last answer, shown above the input once a chat runs.
@@ -143,6 +150,7 @@ class _ChatScreenState extends State<ChatScreen> {
         text: answer,
         programJson: reply.program?.json ?? '',
         listJson: reply.listJson,
+        settingsJson: reply.settingsJson,
         sources: reply.listJson.isEmpty ? <String>[] : (offers?.sources ?? <String>[]),
       ));
       if (mounted) {
@@ -301,28 +309,121 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  /// Chat bubbles: own messages dark on the right (inverted colours), coach on the left.
   Widget _bubble(AppState state, ChatMessage m) {
     final AppColors c = AppColors.of(context);
     final bool mine = m.role == 'user';
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.86),
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: mine ? c.accent : c.surface,
-          border: Border.all(color: mine ? c.accent : c.border),
-          borderRadius: BorderRadius.circular(kRadius),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Text(m.text, style: bodyStyle(context, size: 15, color: mine ? c.onAccent : c.text)),
-            if (m.programJson.isNotEmpty) _programCard(state, m),
-            if (m.listJson.isNotEmpty) _listCard(state, m),
-          ],
-        ),
+    final Widget bubble = Container(
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * (mine ? 0.78 : 0.8)),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: mine ? c.text : c.surface,
+        border: Border.all(color: mine ? c.text : c.border, width: c.borderWidth),
+        borderRadius: BorderRadius.circular(kRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Text(m.text, style: bodyStyle(context, size: 15, color: mine ? c.bg : c.text)),
+          if (m.programJson.isNotEmpty) _programCard(state, m),
+          if (m.listJson.isNotEmpty) _listCard(state, m),
+          if (m.settingsJson.isNotEmpty) _settingsCard(state, m),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        mainAxisAlignment: mine ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: <Widget>[
+          if (!mine) ...<Widget>[const _CoachAvatar(), const SizedBox(width: 8)],
+          Flexible(child: bubble),
+        ],
+      ),
+    );
+  }
+
+  /// Proposal of new coach settings. Nothing changes until the user taps "Übernehmen".
+  Widget _settingsCard(AppState state, ChatMessage m) {
+    final AppColors c = AppColors.of(context);
+    Map<String, dynamic> j;
+    try {
+      j = Map<String, dynamic>.from(jsonDecode(m.settingsJson) as Map);
+    } catch (_) {
+      return const SizedBox.shrink();
+    }
+    final CoachProfile p = state.coachProfile;
+    final List<(String, String, String)> rows = <(String, String, String)>[
+      if (j['aiDecides'] is bool)
+        ('Planung', p.aiDecides ? 'Coach entscheidet' : 'Selbst gewählt', j['aiDecides'] == true ? 'Coach entscheidet' : 'Selbst gewählt'),
+      if (j['goal'] is String) ('Ziel', p.goal, j['goal'] as String),
+      if (j['level'] is String) ('Erfahrung', p.level, j['level'] as String),
+      if (j['days'] is num) ('Tage pro Woche', '${p.days}×', '${(j['days'] as num).toInt()}×'),
+      if (j['minutes'] is num) ('Dauer', '${p.minutes} min', '${(j['minutes'] as num).toInt()} min'),
+      if (j['styles'] is List) ('Stile', p.styles.join(', '), (j['styles'] as List<dynamic>).join(', ')),
+    ];
+    final String reason = '${j['reason'] ?? ''}';
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: c.bg,
+        border: Border.all(color: c.text, width: 1.5),
+        borderRadius: BorderRadius.circular(kRadius),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const SectionLabel('Vorschlag: neue Einstellungen'),
+          const SizedBox(height: 8),
+          for (final (String label, String from, String to) in rows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(label, style: bodyStyle(context, size: 12, color: c.text3)),
+                  Text('$from  →  $to', style: bodyStyle(context, size: 14, weight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          if (reason.isNotEmpty) Text(reason, style: bodyStyle(context, size: 13, color: c.text2)),
+          const SizedBox(height: 10),
+          if (m.settingsState.isEmpty)
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: PrimaryButton(
+                    label: 'Übernehmen',
+                    height: 44,
+                    fontSize: 16,
+                    onPressed: () {
+                      state.answerSettingsProposal(m, true);
+                      setState(() {});
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: SecondaryButton(
+                    label: 'Ablehnen',
+                    height: 44,
+                    fontSize: 16,
+                    onPressed: () {
+                      state.answerSettingsProposal(m, false);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              ],
+            )
+          else
+            Text(
+              m.settingsState == 'accepted' ? '✓ Übernommen' : 'Abgelehnt, nichts geändert',
+              style: bodyStyle(context, size: 14, weight: FontWeight.w700),
+            ),
+        ],
       ),
     );
   }
@@ -331,108 +432,190 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final AppState state = AppScope.of(context);
     final AppColors c = AppColors.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: <Widget>[
-            PageHeader(kicker: 'Dein Coach', title: 'Chat', showBack: true),
-            Expanded(
-              child: ListView(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                children: <Widget>[
-                  if (state.chat.isEmpty) ...<Widget>[
-                    Text(
-                      'Schreib dem Coach, was du brauchst. Er kennt dein Profil, deine Körperdaten und deine letzten Trainings.',
-                      style: bodyStyle(context, size: 14, color: c.text2),
-                    ),
-                    const SizedBox(height: 14),
-                    for (final String s in _suggestions)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: InkWell(
-                          onTap: _busy ? null : () => _send(s),
-                          child: ChipBox(text: s, height: 48, showCheck: false),
-                        ),
-                      ),
-                  ],
-                  for (final ChatMessage m in state.chat) _bubble(state, m),
-                  Reveal(
-                    show: _busy,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: Text(_status, style: bodyStyle(context, size: 14, color: c.text2)),
-                    ),
-                  ),
-                  Reveal(
-                    show: _error != null,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: ErrorNote(_error ?? ''),
-                    ),
-                  ),
-                  if (state.chat.isNotEmpty)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton(
-                        onPressed: _busy ? null : state.clearChat,
-                        child: Text('Chat leeren', style: bodyStyle(context, size: 13, color: c.text2)),
-                      ),
-                    ),
-                  Text(
-                    'Die Antworten stammen von einer AI und ersetzen keine ärztliche oder sportfachliche Beratung.',
-                    style: bodyStyle(context, size: 12, color: c.text2),
-                  ),
-                ],
+    final Widget header = widget.embedded
+        ? PageHeader(
+            kicker: 'Dein persönlicher Coach',
+            title: 'Coach',
+            band: true,
+            trailing: Builder(
+              builder: (BuildContext ctx) => IconButton(
+                tooltip: 'Coach-Einstellungen',
+                onPressed: widget.onOpenSettings,
+                icon: Icon(Icons.tune, color: AppColors.of(ctx).text),
               ),
             ),
-            if (state.chat.isNotEmpty)
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  children: <Widget>[
-                    for (final String q in _quick)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: InkWell(
-                          onTap: _busy ? null : () => _send(q),
-                          // A bounded width is needed inside a horizontal list.
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 260),
-                            child: ChipBox(text: q, height: 40, showCheck: false),
+          )
+        : const PageHeader(kicker: 'Dein Coach', title: 'Chat', showBack: true);
+    final Widget column = Column(
+      children: <Widget>[
+        header,
+        Expanded(
+          child: ListView(
+            controller: _scroll,
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+            children: <Widget>[
+              if (state.chat.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: <Widget>[
+                      const _CoachAvatar(),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: c.surface,
+                            border: Border.all(color: c.border, width: c.borderWidth),
+                            borderRadius: BorderRadius.circular(kRadius),
+                          ),
+                          child: Text(
+                            state.firstName.isEmpty
+                                ? 'Hi! Ich kenne dein Profil, deine Körperdaten und deine letzten Trainings. Womit fangen wir an?'
+                                : 'Hi ${state.firstName}! Ich kenne dein Profil, deine Körperdaten und deine letzten Trainings. Womit fangen wir an?',
+                            style: bodyStyle(context, size: 15),
                           ),
                         ),
                       ),
-                  ],
+                    ],
+                  ),
+                ),
+              for (final ChatMessage m in state.chat) _bubble(state, m),
+              Reveal(
+                show: _busy,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 10, left: 40),
+                  child: Text(_status, style: bodyStyle(context, size: 14, color: c.text2)),
                 ),
               ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      enabled: !_busy,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.send,
-                      onSubmitted: _send,
-                      style: bodyStyle(context, size: 15),
-                      cursorColor: c.accentText,
-                      decoration: fieldDecoration(context, 'Nachricht an den Coach'),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  IconButton(
-                    onPressed: _busy ? null : () => _send(_input.text),
-                    icon: Icon(Icons.send, color: _busy ? c.text3 : c.accentText),
-                  ),
-                ],
+              Reveal(
+                show: _error != null,
+                child: Padding(padding: const EdgeInsets.only(bottom: 10), child: ErrorNote(_error ?? '')),
               ),
-            ),
+              Text(
+                'Die Antworten stammen von einer AI und ersetzen keine ärztliche oder sportfachliche Beratung.',
+                style: bodyStyle(context, size: 11, color: c.text3),
+              ),
+            ],
+          ),
+        ),
+        // Ready-made options, then quick changes to the last answer once a chat runs.
+        SizedBox(
+          height: 46,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+            children: <Widget>[
+              for (final (String label, IconData icon, String msg) in _options)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _OptionChip(label: label, icon: icon, onTap: _busy ? null : () => _send(msg)),
+                ),
+              if (state.chat.isNotEmpty)
+                for (final String q in _quick)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: _OptionChip(label: q, onTap: _busy ? null : () => _send(q)),
+                  ),
+            ],
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+          decoration: BoxDecoration(color: c.bg, border: Border(top: BorderSide(color: c.border))),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: TextField(
+                  controller: _input,
+                  enabled: !_busy,
+                  minLines: 1,
+                  maxLines: 4,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: _send,
+                  style: bodyStyle(context, size: 15),
+                  cursorColor: c.accentText,
+                  decoration: fieldDecoration(context, 'Nachricht an den Coach'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Semantics(
+                button: true,
+                label: 'Senden',
+                child: InkWell(
+                  onTap: _busy ? null : () => _send(_input.text),
+                  child: Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: _busy ? c.surface2 : c.accent,
+                      border: Border.all(color: c.accentEdge ?? c.accent, width: c.accentEdge == null ? 0 : 1.5),
+                      borderRadius: BorderRadius.circular(kRadius),
+                    ),
+                    child: Icon(Icons.send, color: _busy ? c.text3 : c.onAccent),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+    if (widget.embedded) {
+      return column;
+    }
+    return Scaffold(body: SafeArea(child: column));
+  }
+}
+
+/// Round coach mark next to the coach's messages.
+class _CoachAvatar extends StatelessWidget {
+  const _CoachAvatar();
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    return Container(
+      width: 32,
+      height: 32,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: c.isDark ? c.surface2 : const Color(0xFF1E2124),
+        shape: BoxShape.circle,
+        border: c.highContrast ? Border.all(color: c.text, width: c.borderWidth) : null,
+      ),
+      child: Text('GC', style: heading(context, 15, color: c.lime)),
+    );
+  }
+}
+
+/// Chip with an optional icon for the options above the input.
+class _OptionChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final VoidCallback? onTap;
+
+  const _OptionChip({required this.label, this.icon, this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: c.control,
+          border: Border.all(color: c.outline, width: c.borderWidth),
+          borderRadius: BorderRadius.circular(kRadius),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (icon != null) ...<Widget>[Icon(icon, size: 16, color: c.text), const SizedBox(width: 6)],
+            Text(label, style: bodyStyle(context, size: 13, weight: FontWeight.w600)),
           ],
         ),
       ),

@@ -69,7 +69,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           padding: EdgeInsets.zero,
           children: <Widget>[
             PageHeader(
-              kicker: widget.editing ? 'Profil' : 'Schritt 3 von 3',
+              kicker: widget.editing ? 'Profil' : 'Schritt 4 von 4',
               title: 'Körperdaten',
               showBack: widget.editing,
             ),
@@ -158,7 +158,7 @@ class _FeatureChoiceScreenState extends State<FeatureChoiceScreen> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: <Widget>[
-            const PageHeader(kicker: 'Schritt 2 von 3', title: 'Was möchtest du nutzen?'),
+            const PageHeader(kicker: 'Schritt 3 von 4', title: 'Was möchtest du nutzen?'),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               child: Column(
@@ -231,7 +231,7 @@ class _NameScreenState extends State<NameScreen> {
           padding: EdgeInsets.zero,
           children: <Widget>[
             PageHeader(
-              kicker: widget.editing ? 'Profil' : 'Schritt 1 von 3',
+              kicker: widget.editing ? 'Profil' : 'Schritt 1 von 4',
               title: 'Wie heißt du?',
               showBack: widget.editing,
             ),
@@ -272,6 +272,206 @@ class _NameScreenState extends State<NameScreen> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Step 2 at registration: the look of the app. Every choice applies at once,
+/// so the screen itself is the preview. All of it can be changed later in
+/// Profil › Darstellung.
+class ThemeChoiceScreen extends StatelessWidget {
+  const ThemeChoiceScreen({super.key});
+
+  static const List<(String, String, Brightness)> _styles = <(String, String, Brightness)>[
+    ('white', 'Weiß', Brightness.light),
+    ('stone', 'Stein', Brightness.light),
+    ('blue', 'Blau', Brightness.light),
+    ('black', 'Schwarz', Brightness.dark),
+    ('grey', 'Grau', Brightness.dark),
+    ('blue', 'Blau', Brightness.dark),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final AppState state = AppScope.of(context);
+    final AppColors c = AppColors.of(context);
+    final Brightness now = Theme.of(context).brightness;
+
+    bool isOn((String, String, Brightness) s) {
+      if (state.highContrast || s.$3 != now) {
+        return false;
+      }
+      return s.$3 == Brightness.light ? state.lightStyle == s.$1 : state.darkStyle == s.$1;
+    }
+
+    void pick((String, String, Brightness) s) {
+      if (s.$3 == Brightness.light) {
+        state.setLightStyle(s.$1);
+      } else {
+        state.setDarkStyle(s.$1);
+      }
+      state.setHighContrast(false);
+      // Picking a light or dark look also fixes the mode; "System" stays available above.
+      if (state.themeMode != ThemeMode.system || s.$3 != now) {
+        state.setThemeMode(s.$3 == Brightness.light ? ThemeMode.light : ThemeMode.dark);
+      }
+    }
+
+    Widget modeChip(String label, ThemeMode m) {
+      return InkWell(
+        onTap: () => state.setThemeMode(m),
+        child: ChipBox(text: label, selected: state.themeMode == m, height: 44),
+      );
+    }
+
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: <Widget>[
+            const PageHeader(kicker: 'Schritt 2 von 4', title: 'Dein Look'),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  Text('Tippe ein Design an, die App wechselt sofort. Du kannst es später jederzeit ändern.',
+                      style: bodyStyle(context, size: 14, color: c.text2)),
+                  const SizedBox(height: 16),
+                  const SectionLabel('Modus'),
+                  const SizedBox(height: 8),
+                  EvenGrid(columns: 3, children: <Widget>[
+                    modeChip('Hell', ThemeMode.light),
+                    modeChip('Dunkel', ThemeMode.dark),
+                    modeChip('System', ThemeMode.system),
+                  ]),
+                  const SizedBox(height: 18),
+                  const SectionLabel('Hell'),
+                  const SizedBox(height: 8),
+                  EvenGrid(columns: 3, children: <Widget>[
+                    for (final (String, String, Brightness) s in _styles.where((e) => e.$3 == Brightness.light))
+                      _ThemeCard(
+                        label: s.$2,
+                        colors: AppColors.pick(Brightness.light, lightStyle: s.$1),
+                        selected: isOn(s),
+                        onTap: () => pick(s),
+                      ),
+                  ]),
+                  const SizedBox(height: 14),
+                  const SectionLabel('Dunkel'),
+                  const SizedBox(height: 8),
+                  EvenGrid(columns: 3, children: <Widget>[
+                    for (final (String, String, Brightness) s in _styles.where((e) => e.$3 == Brightness.dark))
+                      _ThemeCard(
+                        label: s.$2,
+                        colors: AppColors.pick(Brightness.dark, darkStyle: s.$1),
+                        selected: isOn(s),
+                        onTap: () => pick(s),
+                      ),
+                  ]),
+                  const SizedBox(height: 14),
+                  SwitchRow(
+                    title: 'Hoher Kontrast',
+                    note: 'Schwarz/Weiß, dicke Ränder. Für Sehschwäche.',
+                    value: state.highContrast,
+                    onChanged: state.setHighContrast,
+                  ),
+                  const SizedBox(height: 10),
+                  const SectionLabel('Schriftgröße'),
+                  const SizedBox(height: 8),
+                  EvenGrid(columns: 3, children: <Widget>[
+                    InkWell(onTap: () => state.setTextScale(0.9), child: ChipBox(text: 'A−', selected: state.textScale < 1, height: 44)),
+                    InkWell(onTap: () => state.setTextScale(1.0), child: ChipBox(text: 'A', selected: state.textScale == 1, height: 44)),
+                    InkWell(onTap: () => state.setTextScale(1.15), child: ChipBox(text: 'A+', selected: state.textScale > 1, height: 44)),
+                  ]),
+                  const SizedBox(height: 22),
+                  PrimaryButton(label: 'Weiter', height: 60, fontSize: 21, onPressed: state.markThemeChosen),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small preview of one look: page, header with marker title, lime block and two cards.
+class _ThemeCard extends StatelessWidget {
+  final String label;
+  final AppColors colors;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ThemeCard({required this.label, required this.colors, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    final AppColors t = colors;
+    final bool dark = t.isDark;
+    Widget card() => Expanded(
+          child: Container(
+            height: 18,
+            decoration: BoxDecoration(color: t.surface, border: Border.all(color: t.border)),
+          ),
+        );
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: 'Design $label',
+      child: InkWell(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: kFast,
+          decoration: BoxDecoration(
+            border: Border.all(color: selected ? c.text : c.outline, width: selected ? 2.5 : c.borderWidth),
+            borderRadius: BorderRadius.circular(kRadius),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Container(
+                height: 96,
+                color: t.bg,
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    // Header: dark bar in dark themes, marker title in light themes.
+                    Container(
+                      height: 20,
+                      color: dark ? (t.band ?? t.surface) : t.bg,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Container(
+                        width: 34,
+                        height: 7,
+                        color: dark ? t.text : t.lime,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(height: 22, color: t.lime),
+                    const SizedBox(height: 6),
+                    Row(children: <Widget>[card(), const SizedBox(width: 5), card()]),
+                  ],
+                ),
+              ),
+              Container(
+                color: c.control,
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: <Widget>[
+                    if (selected) ...<Widget>[Icon(Icons.check, size: 16, color: c.text), const SizedBox(width: 4)],
+                    Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: bodyStyle(context, size: 13, weight: FontWeight.w700))),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

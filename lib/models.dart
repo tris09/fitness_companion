@@ -317,6 +317,10 @@ class StretchSettings {
 }
 
 /// What the user told the coach once. Saved so the questions are not asked again.
+/// Choices of the coach set-up. Shared by the set-up, the settings and the coach's proposals.
+const List<String> kCoachGoals = <String>['Muskelaufbau', 'Fett verlieren', 'Fit bleiben', 'Kraft'];
+const List<String> kCoachLevels = <String>['Anfänger', 'Etwas Erfahrung', 'Erfahren'];
+
 class CoachProfile {
   List<String> styles;
   String goal;
@@ -415,13 +419,17 @@ class WorkoutLog {
   /// Exercises as done: id, sets, reps.
   final List<PlanItem> items;
 
-  WorkoutLog({required this.date, required this.planName, required this.items});
+  /// Real duration in minutes (start to finish). 0 for older entries.
+  final int minutes;
+
+  WorkoutLog({required this.date, required this.planName, required this.items, this.minutes = 0});
 
   /// Compact form: date as day number, items as [id, sets, reps].
   Map<String, dynamic> toJson() => <String, dynamic>{
         'd': dayNumber(date),
         'n': planName,
         'i': items.map((PlanItem e) => <dynamic>[e.exerciseId, e.sets, e.reps]).toList(),
+        if (minutes > 0) 'm': minutes,
       };
 
   /// Reads the compact form and the older long form.
@@ -436,6 +444,7 @@ class WorkoutLog {
             if (e is List && e.length >= 3)
               PlanItem(exerciseId: '${e[0]}', sets: (e[1] as num).toInt(), reps: (e[2] as num).toInt(), restSec: 60),
         ],
+        minutes: (j['m'] as num?)?.toInt() ?? 0,
       );
     }
     final List<dynamic> raw = (j['items'] as List<dynamic>?) ?? <dynamic>[];
@@ -468,6 +477,12 @@ class ChatMessage {
   /// Web sources the coach used for local offers.
   final List<String> sources;
 
+  /// Proposed change of the coach settings (JSON), or empty.
+  final String settingsJson;
+
+  /// '' = open, 'accepted' or 'declined'.
+  String settingsState;
+
   ChatMessage({
     required this.role,
     required this.text,
@@ -476,6 +491,8 @@ class ChatMessage {
     this.listJson = '',
     this.listSaved = false,
     List<String>? sources,
+    this.settingsJson = '',
+    this.settingsState = '',
   }) : sources = sources ?? <String>[];
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -486,6 +503,8 @@ class ChatMessage {
         'list': listJson,
         'listSaved': listSaved,
         'sources': sources,
+        if (settingsJson.isNotEmpty) 'settings': settingsJson,
+        if (settingsState.isNotEmpty) 'settingsState': settingsState,
       };
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
@@ -497,6 +516,8 @@ class ChatMessage {
       listJson: '${j['list'] ?? ''}',
       listSaved: j['listSaved'] == true,
       sources: ((j['sources'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList(),
+      settingsJson: '${j['settings'] ?? ''}',
+      settingsState: '${j['settingsState'] ?? ''}',
     );
   }
 }

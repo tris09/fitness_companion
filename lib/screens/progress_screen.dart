@@ -4,6 +4,7 @@ import '../catalog.dart';
 import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
+import '../stats.dart';
 import '../training_memory.dart';
 import '../widgets/common.dart';
 import '../widgets/settings_parts.dart';
@@ -22,6 +23,12 @@ class ProgressScreen extends StatefulWidget {
 
 class _ProgressScreenState extends State<ProgressScreen> {
   String? _selected;
+
+  /// Period of the overview, muscle groups, records and favourites: 4 weeks, 3 or 6 months.
+  int _days = 28;
+
+  /// Exercise chart: false = weight, true = estimated max.
+  bool _showMax = false;
   bool _writing = false;
   String? _error;
 
@@ -142,7 +149,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
   /// How often each muscle group was trained in the last 4 weeks.
   Widget _muscles(BuildContext context, AppState state) {
     final AppColors c = AppColors.of(context);
-    final List<WorkoutLog> four = state.recentWorkouts(days: 28);
+    final List<WorkoutLog> four = workoutsIn(state, _days);
     final Map<String, int> count = <String, int>{for (final String g in kMuscleGroups) g: 0};
     for (final WorkoutLog w in four) {
       final Set<String> groups = <String>{};
@@ -160,7 +167,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          const SectionLabel('Muskelgruppen · 4 Wochen'),
+          SectionLabel('Muskelgruppen · ${_periodName()}'),
           const SizedBox(height: 10),
           for (final String g in kMuscleGroups)
             Padding(
@@ -180,6 +187,224 @@ class _ProgressScreenState extends State<ProgressScreen> {
                     ),
                   ),
                   SizedBox(width: 34, child: Text('${count[g]}×', textAlign: TextAlign.right, style: bodyStyle(context, size: 12, color: c.text3))),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static double _round1(double v) => (v * 2).round() / 2;
+
+  String _periodName() => _days == 28 ? '4 Wochen' : (_days == 91 ? '3 Monate' : '6 Monate');
+
+  Widget _periodChips() {
+    Widget chip(String t, int d) => InkWell(onTap: () => setState(() => _days = d), child: ChipBox(text: t, selected: _days == d, height: 40));
+    return EvenGrid(columns: 3, children: <Widget>[chip('4 Wochen', 28), chip('3 Monate', 91), chip('6 Monate', 182)]);
+  }
+
+  /// Workouts, average per week, time and lifted volume in the chosen period.
+  Widget _overview(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final int n = workoutsIn(state, _days).length;
+    final double perWeek = n / (_days / 7);
+    final ({int total, int counted}) m = minutesIn(state, _days);
+    final double vol = volumeIn(state, _days);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionLabel('Überblick · ${_periodName()}'),
+          const SizedBox(height: 10),
+          Row(
+            children: <Widget>[
+              Expanded(child: _stat(context, 'Trainings', '$n')),
+              Expanded(child: _stat(context, 'Pro Woche', perWeek.toStringAsFixed(1).replaceAll('.', ','))),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: <Widget>[
+              Expanded(child: _stat(context, 'Trainingszeit', m.total == 0 ? '–' : formatMinutes(m.total))),
+              Expanded(child: _stat(context, 'Bewegtes Gewicht', vol <= 0 ? '–' : formatVolume(vol))),
+            ],
+          ),
+          if (m.counted > 0) ...<Widget>[
+            const SizedBox(height: 8),
+            Text('Ø ${(m.total / m.counted).round()} min pro Training', style: bodyStyle(context, size: 13, color: c.text2)),
+          ],
+          if (vol <= 0) ...<Widget>[
+            const SizedBox(height: 8),
+            Text('Bewegtes Gewicht = Gewicht × Wiederholungen × Sätze. Erscheint, sobald du nach dem Training Gewichte einträgst.',
+                style: bodyStyle(context, size: 12, color: c.text3)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Workouts per week (12 weeks) with the weekly goal as a line, and the volume below.
+  Widget _weeksCard(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<int> counts = workoutsPerWeek(state, 12);
+    final List<double> vol = volumePerWeek(state, 12);
+    final bool hasVol = vol.any((double v) => v > 0);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const SectionLabel('Trainings pro Woche · 12 Wochen'),
+          const SizedBox(height: 10),
+          _Bars(values: counts.map((int v) => v.toDouble()).toList(), goal: state.weekGoal.toDouble(), labelOf: (double v) => '${v.round()}'),
+          const SizedBox(height: 6),
+          Text('Linie = dein Wochenziel (${state.weekGoal}×). Rechts die aktuelle Woche.', style: bodyStyle(context, size: 12, color: c.text3)),
+          if (hasVol) ...<Widget>[
+            const SizedBox(height: 16),
+            const SectionLabel('Bewegtes Gewicht pro Woche'),
+            const SizedBox(height: 10),
+            _Bars(values: vol, labelOf: (double v) => v <= 0 ? '' : formatVolume(v).replaceAll(' ', '')),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Trained days of the last 12 weeks as a grid (rows = weekdays).
+  Widget _heatmap(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final Set<DateTime> days = trainedDays(state, 12);
+    final DateTime today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    final DateTime first = today.subtract(Duration(days: today.weekday - 1 + 7 * 11));
+    final Color on = c.isDark ? c.accent : c.text;
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              const Expanded(child: SectionLabel('Trainingstage · 12 Wochen')),
+              Text('${days.length} Tage', style: bodyStyle(context, size: 13, weight: FontWeight.w700)),
+            ],
+          ),
+          const SizedBox(height: 10),
+          for (int wd = 0; wd < 7; wd++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 3),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(width: 26, child: Text(weekdayShort[wd], style: bodyStyle(context, size: 11, color: c.text3))),
+                  for (int w = 0; w < 12; w++)
+                    Expanded(
+                      child: Builder(builder: (BuildContext _) {
+                        final DateTime d = first.add(Duration(days: w * 7 + wd));
+                        final bool future = d.isAfter(today);
+                        return Container(
+                          height: 14,
+                          margin: const EdgeInsets.symmetric(horizontal: 1.5),
+                          decoration: BoxDecoration(
+                            color: future ? Colors.transparent : (days.contains(d) ? on : c.surface2),
+                            border: d == today ? Border.all(color: c.text, width: 1.5) : null,
+                          ),
+                        );
+                      }),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// On which weekdays the user trains in the period.
+  Widget _weekdays(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<int> per = perWeekday(state, _days);
+    if (per.every((int v) => v == 0)) {
+      return const SizedBox.shrink();
+    }
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionLabel('Wochentage · ${_periodName()}'),
+          const SizedBox(height: 10),
+          _Bars(values: per.map((int v) => v.toDouble()).toList(), labelOf: (double v) => '${v.round()}', captions: weekdayShort),
+          const SizedBox(height: 4),
+          Text('Wie oft du an welchem Tag trainierst.', style: bodyStyle(context, size: 12, color: c.text3)),
+        ],
+      ),
+    );
+  }
+
+  /// New best weights and the biggest gains (estimated max) in the period.
+  Widget _records(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<NewRecord> recs = recordsIn(state, _days);
+    final List<Progress> prog = progressIn(state, _days).where((Progress p) => p.percent > 0).toList();
+    if (recs.isEmpty && prog.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionLabel('Bestleistungen · ${_periodName()}'),
+          const SizedBox(height: 8),
+          for (final NewRecord r in recs.take(5))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.emoji_events_outlined, size: 18, color: c.text),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(exerciseName(r.exerciseId), style: bodyStyle(context, size: 14, weight: FontWeight.w600))),
+                  Text('${formatKg(r.previous)} → ${formatKg(r.entry.kg)}', style: bodyStyle(context, size: 13, weight: FontWeight.w700)),
+                ],
+              ),
+            ),
+          if (prog.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            Text('Größter Fortschritt (geschätztes Maximum)', style: bodyStyle(context, size: 12, color: c.text3)),
+            const SizedBox(height: 6),
+            for (final Progress p in prog)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(child: Text(exerciseName(p.exerciseId), style: bodyStyle(context, size: 14, weight: FontWeight.w600))),
+                    Text('+${p.percent.toStringAsFixed(0)} %', style: heading(context, 20)),
+                  ],
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Most frequent exercises in the period.
+  Widget _favourites(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<(String, int)> top = topExercises(state, _days);
+    if (top.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SectionLabel('Häufigste Übungen · ${_periodName()}'),
+          const SizedBox(height: 8),
+          for (int i = 0; i < top.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(width: 22, child: Text('${i + 1}', style: heading(context, 18, color: c.text3))),
+                  Expanded(child: Text(exerciseName(top[i].$1), style: bodyStyle(context, size: 14, weight: FontWeight.w600))),
+                  Text('${top[i].$2}×', style: bodyStyle(context, size: 13, color: c.text2)),
                 ],
               ),
             ),
@@ -217,12 +442,26 @@ class _ProgressScreenState extends State<ProgressScreen> {
                   ),
                   const SizedBox(height: 12),
                   _summary(context, state),
+                  const SizedBox(height: 16),
+                  _periodChips(),
+                  const SizedBox(height: 10),
+                  _overview(context, state),
+                  const SizedBox(height: 12),
+                  _weeksCard(context, state),
+                  const SizedBox(height: 12),
+                  _heatmap(context, state),
                   if (state.features.tracking) ...<Widget>[
                     const SizedBox(height: 12),
                     _bodyCard(context, state),
                   ],
                   const SizedBox(height: 12),
                   _muscles(context, state),
+                  const SizedBox(height: 12),
+                  _weekdays(context, state),
+                  const SizedBox(height: 12),
+                  _records(context, state),
+                  const SizedBox(height: 12),
+                  _favourites(context, state),
                   const SizedBox(height: 20),
                   if (id == null)
                     Text(
@@ -270,6 +509,9 @@ class _ProgressScreenState extends State<ProgressScreen> {
     final List<WeightEntry> list = state.weights[id]!;
     final double? record = state.records[id];
     final double? next = suggestWeight(list);
+    final double maxNow = estimatedMax(list.last);
+    final double maxStart = estimatedMax(list.first);
+    final double change = maxStart <= 0 ? 0 : (maxNow - maxStart) / maxStart * 100;
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -280,12 +522,23 @@ class _ProgressScreenState extends State<ProgressScreen> {
             '${record == null ? '' : 'Rekord ${formatKg(record)}'}${next == null ? '' : ' · Nächstes Mal ${formatKg(next)}'}',
             style: bodyStyle(context, size: 14, weight: FontWeight.w600, color: c.accentText),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
+          Text(
+            'Geschätztes Maximum (1 Wdh.): ${formatKg(_round1(maxNow))}'
+            '${list.length < 2 ? '' : ' · ${change >= 0 ? '+' : ''}${change.toStringAsFixed(0)} % seit ${list.first.date.day}.${list.first.date.month}.'}',
+            style: bodyStyle(context, size: 13, color: c.text2),
+          ),
+          const SizedBox(height: 10),
+          EvenGrid(columns: 2, children: <Widget>[
+            InkWell(onTap: () => setState(() => _showMax = false), child: ChipBox(text: 'Gewicht', selected: !_showMax, height: 38)),
+            InkWell(onTap: () => setState(() => _showMax = true), child: ChipBox(text: 'Geschätztes Maximum', selected: _showMax, height: 38)),
+          ]),
+          const SizedBox(height: 12),
           SizedBox(
             height: 180,
             child: CustomPaint(
               painter: LineChart(
-                values: list.map((WeightEntry e) => e.kg).toList(),
+                values: list.map((WeightEntry e) => _showMax ? _round1(estimatedMax(e)) : e.kg).toList(),
                 line: c.accentText,
                 grid: c.border,
                 label: c.text2,
@@ -369,4 +622,82 @@ class LineChart extends CustomPainter {
 
   @override
   bool shouldRepaint(LineChart old) => old.values != values || old.line != line;
+}
+
+/// Simple bar chart: one bar per value, value above, optional caption below.
+/// An optional [goal] is drawn as a horizontal line.
+class _Bars extends StatelessWidget {
+  final List<double> values;
+  final double? goal;
+  final String Function(double v) labelOf;
+  final List<String>? captions;
+
+  const _Bars({required this.values, required this.labelOf, this.goal, this.captions});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    const double h = 90;
+    double top = values.fold(0, (double a, double b) => a > b ? a : b);
+    if (goal != null && goal! > top) {
+      top = goal!;
+    }
+    if (top <= 0) {
+      top = 1;
+    }
+    final Color bar = c.isDark ? c.accent : c.text;
+    return Column(
+      children: <Widget>[
+        SizedBox(
+          height: h + 16,
+          child: Stack(
+            children: <Widget>[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  for (int i = 0; i < values.length; i++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: <Widget>[
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(labelOf(values[i]), style: bodyStyle(context, size: 10, color: c.text3)),
+                            ),
+                            const SizedBox(height: 2),
+                            AnimatedContainer(
+                              duration: kFast,
+                              height: values[i] <= 0 ? 2 : (values[i] / top * h).clamp(3.0, h),
+                              color: values[i] <= 0 ? c.border : bar,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              if (goal != null)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: goal! / top * h,
+                  child: Container(height: 1.5, color: c.text2),
+                ),
+            ],
+          ),
+        ),
+        if (captions != null) ...<Widget>[
+          const SizedBox(height: 4),
+          Row(
+            children: <Widget>[
+              for (int i = 0; i < values.length; i++)
+                Expanded(child: Text(captions![i], textAlign: TextAlign.center, style: bodyStyle(context, size: 11, color: c.text3))),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
 }

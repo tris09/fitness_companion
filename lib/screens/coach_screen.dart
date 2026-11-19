@@ -12,18 +12,69 @@ import '../widgets/tutorial_dialog.dart';
 import 'chat_screen.dart';
 import 'wiki_screen.dart';
 
-/// The personal coach. Sends one controlled request to Gemini with the
-/// user's own API key and turns the JSON answer into training plans.
+/// The Coach tab. First start: a short set-up in 3 steps. After that a normal
+/// chat with ready-made options; the settings sit behind the button top right.
 class CoachScreen extends StatefulWidget {
   final void Function(int index) onOpenTab;
 
   const CoachScreen({super.key, required this.onOpenTab});
 
   @override
-  State<CoachScreen> createState() => _CoachScreenState();
+  State<CoachScreen> createState() => _CoachTabState();
 }
 
-class _CoachScreenState extends State<CoachScreen> {
+class _CoachTabState extends State<CoachScreen> {
+  bool? _hasKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkKey();
+  }
+
+  Future<void> _checkKey() async {
+    final String? key = await Secrets.readGeminiKey();
+    if (mounted) {
+      setState(() => _hasKey = key != null);
+    }
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (BuildContext _) => CoachSettingsScreen(onOpenTab: widget.onOpenTab)),
+    );
+    // The key may have been removed in the settings.
+    _checkKey();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppState state = AppScope.of(context);
+    if (_hasKey == null) {
+      return const SizedBox.shrink();
+    }
+    final bool needsSetup = !state.coachProfile.done || !_hasKey!;
+    return AnimatedSwitcher(
+      duration: kFast,
+      child: needsSetup
+          ? CoachSetupFlow(key: const ValueKey<String>('setup'), hasKey: _hasKey!, onDone: _checkKey)
+          : ChatScreen(key: const ValueKey<String>('chat'), embedded: true, onOpenSettings: _openSettings),
+    );
+  }
+}
+
+/// All coach settings on one page: goals and volume, API key, what the coach
+/// remembers, weekly programme, clearing the chat.
+class CoachSettingsScreen extends StatefulWidget {
+  final void Function(int index)? onOpenTab;
+
+  const CoachSettingsScreen({super.key, this.onOpenTab});
+
+  @override
+  State<CoachSettingsScreen> createState() => _CoachScreenState();
+}
+
+class _CoachScreenState extends State<CoachSettingsScreen> {
   final TextEditingController _keyCtrl = TextEditingController();
   final TextEditingController _noteCtrl = TextEditingController();
 
@@ -40,8 +91,8 @@ class _CoachScreenState extends State<CoachScreen> {
   CoachProgram? _program;
   bool _saved = false;
 
-  static const List<String> _goals = <String>['Muskelaufbau', 'Fett verlieren', 'Fit bleiben', 'Kraft'];
-  static const List<String> _levels = <String>['Anfänger', 'Etwas Erfahrung', 'Erfahren'];
+  static const List<String> _goals = kCoachGoals;
+  static const List<String> _levels = kCoachLevels;
 
   @override
   void initState() {
@@ -380,7 +431,13 @@ class _CoachScreenState extends State<CoachScreen> {
           if (_saved) ...<Widget>[
             Text('Als Pläne gespeichert.', style: bodyStyle(context, size: 15, weight: FontWeight.w600)),
             const SizedBox(height: 10),
-            SecondaryButton(label: 'Zu den Plänen', onPressed: () => widget.onOpenTab(1)),
+            SecondaryButton(
+              label: 'Zu den Plänen',
+              onPressed: () {
+                Navigator.of(context).popUntil((Route<dynamic> r) => r.isFirst);
+                widget.onOpenTab?.call(1);
+              },
+            ),
           ] else ...<Widget>[
             PrimaryButton(
               label: 'Als Pläne speichern',
@@ -548,21 +605,9 @@ class _CoachScreenState extends State<CoachScreen> {
             ],
           ),
         ),
-        const SizedBox(height: 18),
-        PrimaryButton(
-          label: 'Mit dem Coach chatten',
-          height: 64,
-          fontSize: 22,
-          icon: Icons.chat_bubble_outline,
-          onPressed: hasKey
-              ? () {
-                  Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const ChatScreen()));
-                }
-              : null,
-        ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         Text(
-          'Frag zum Beispiel: „Erstelle mir ein Training für heute.“ Der Coach kennt deine letzten Trainings.',
+          'Du kannst Ziele auch im Chat ändern: Der Coach schlägt Änderungen vor, die du bestätigen musst.',
           style: bodyStyle(context, size: 13, color: c.text2),
         ),
         if (state.memory.isNotEmpty) ...<Widget>[
@@ -630,6 +675,18 @@ class _CoachScreenState extends State<CoachScreen> {
               ? const SizedBox.shrink()
               : Padding(padding: const EdgeInsets.only(top: 20), child: _result(program)),
         ),
+        const SizedBox(height: 22),
+        const SectionLabel('Chat'),
+        const SizedBox(height: 8),
+        SecondaryButton(
+          label: 'Chat leeren',
+          onPressed: state.chat.isEmpty
+              ? null
+              : () {
+                  state.clearChat();
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Der Chat ist leer. Was der Coach sich gemerkt hat, bleibt.')));
+                },
+        ),
       ],
     );
   }
@@ -643,10 +700,12 @@ class _CoachScreenState extends State<CoachScreen> {
       _draft = state.coachProfile.copy();
     }
 
-    return ListView(
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
       padding: EdgeInsets.zero,
       children: <Widget>[
-        const PageHeader(kicker: 'Dein persönlicher Coach', title: 'Coach', band: true),
+        const PageHeader(kicker: 'Coach', title: 'Einstellungen', showBack: true),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(
@@ -665,6 +724,232 @@ class _CoachScreenState extends State<CoachScreen> {
                   child: editing ? _setup(state, _draft!) : _overview(state, hasKey),
                 ),
               ),
+            ],
+          ),
+        ),
+      ],
+        ),
+      ),
+    );
+  }
+}
+
+/// First start of the coach: 3 short steps. 1 = how the coach plans (and goal),
+/// 2 = volume and styles (skipped when the coach decides), 3 = API key.
+/// Starts at step 3 when only the key is missing.
+class CoachSetupFlow extends StatefulWidget {
+  final bool hasKey;
+  final VoidCallback onDone;
+
+  const CoachSetupFlow({super.key, required this.hasKey, required this.onDone});
+
+  @override
+  State<CoachSetupFlow> createState() => _CoachSetupFlowState();
+}
+
+class _CoachSetupFlowState extends State<CoachSetupFlow> {
+  late CoachProfile _draft;
+  late int _step;
+
+  /// True when the profile was already set and only the key is missing.
+  late bool _keyOnly;
+  bool _init = false;
+  final TextEditingController _key = TextEditingController();
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_init) {
+      final AppState state = AppScope.of(context);
+      _draft = state.coachProfile.copy();
+      _keyOnly = state.coachProfile.done;
+      _step = _keyOnly ? 2 : 0;
+      _init = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  void _next() {
+    final AppState state = AppScope.of(context);
+    if (_step == 0 && !_draft.aiDecides) {
+      setState(() => _step = 1);
+      return;
+    }
+    if (_step <= 1) {
+      state.saveCoachProfile(_draft);
+      if (widget.hasKey) {
+        widget.onDone();
+        return;
+      }
+      setState(() => _step = 2);
+    }
+  }
+
+  Future<void> _saveKey() async {
+    final String v = _key.text.trim();
+    if (v.length < 10) {
+      setState(() => _error = 'Der Schlüssel ist zu kurz.');
+      return;
+    }
+    setState(() => _saving = true);
+    final bool ok = await Secrets.writeGeminiKey(v);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _error = ok ? null : 'Der Schlüssel konnte nicht gespeichert werden.';
+    });
+    if (ok) {
+      widget.onDone();
+    }
+  }
+
+  Widget _grid<T>(List<T> values, bool Function(T v) selected, String Function(T v) label, void Function(T v) pick, {int columns = 2}) {
+    return EvenGrid(
+      columns: columns,
+      children: <Widget>[
+        for (final T v in values)
+          InkWell(
+            onTap: () => setState(() => pick(v)),
+            child: ChipBox(text: label(v), selected: selected(v), height: 44),
+          ),
+      ],
+    );
+  }
+
+  List<Widget> _stepPlanning() {
+    return <Widget>[
+      const SectionLabel('Wie soll der Coach planen?'),
+      const SizedBox(height: 8),
+      _grid<bool>(const <bool>[true, false], (bool v) => _draft.aiDecides == v, (bool v) => v ? 'Coach entscheidet' : 'Selbst wählen',
+          (bool v) => _draft.aiDecides = v),
+      const SizedBox(height: 8),
+      Text(
+        _draft.aiDecides
+            ? 'Der Coach wählt Ziel, Stil und Umfang selbst, passend zu deinen Trainings und Körperdaten.'
+            : 'Du legst Ziel und Umfang fest. Der Coach kann später Änderungen vorschlagen.',
+        style: bodyStyle(context, size: 13, color: AppColors.of(context).text2),
+      ),
+      if (!_draft.aiDecides) ...<Widget>[
+        const SizedBox(height: 18),
+        const SectionLabel('Ziel'),
+        const SizedBox(height: 8),
+        _grid<String>(kCoachGoals, (String v) => _draft.goal == v, (String v) => v, (String v) => _draft.goal = v),
+        const SizedBox(height: 18),
+        const SectionLabel('Erfahrung'),
+        const SizedBox(height: 8),
+        _grid<String>(kCoachLevels, (String v) => _draft.level == v, (String v) => v, (String v) => _draft.level = v),
+      ],
+    ];
+  }
+
+  List<Widget> _stepVolume() {
+    return <Widget>[
+      const SectionLabel('Trainingstage pro Woche'),
+      const SizedBox(height: 8),
+      _grid<int>(const <int>[2, 3, 4, 5, 6], (int v) => _draft.days == v, (int v) => '$v×', (int v) => _draft.days = v, columns: 5),
+      const SizedBox(height: 18),
+      const SectionLabel('Dauer pro Einheit'),
+      const SizedBox(height: 8),
+      _grid<int>(const <int>[30, 45, 60, 90], (int v) => _draft.minutes == v, (int v) => '$v min', (int v) => _draft.minutes = v, columns: 4),
+      const SizedBox(height: 18),
+      const SectionLabel('Trainingsstile · Mehrfachauswahl'),
+      const SizedBox(height: 8),
+      _grid<String>(trainingStyles, (String v) => _draft.styles.contains(v), (String v) => v, (String v) {
+        if (_draft.styles.contains(v)) {
+          if (_draft.styles.length > 1) {
+            _draft.styles.remove(v);
+          }
+        } else {
+          _draft.styles.add(v);
+        }
+      }),
+    ];
+  }
+
+  List<Widget> _stepKey() {
+    final AppColors c = AppColors.of(context);
+    return <Widget>[
+      Text(
+        'Der Coach läuft über Google Gemini mit deinem eigenen Schlüssel. Er bleibt geschützt auf diesem Gerät.',
+        style: bodyStyle(context, size: 14, color: c.text2),
+      ),
+      const SizedBox(height: 12),
+      SecondaryButton(label: 'Anleitung: Schlüssel holen', onPressed: () => showTutorial(context, geminiKeyTutorial)),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _key,
+        autocorrect: false,
+        enableSuggestions: false,
+        style: bodyStyle(context, size: 15),
+        decoration: fieldDecoration(context, 'API-Schlüssel einfügen'),
+        onChanged: (_) {
+          if (_error != null) {
+            setState(() => _error = null);
+          }
+        },
+      ),
+      Reveal(show: _error != null, child: Padding(padding: const EdgeInsets.only(top: 10), child: ErrorNote(_error ?? ''))),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    final int total = _keyOnly ? 1 : (_draft.aiDecides ? 2 : 3);
+    final int shown = _keyOnly ? 1 : (_step == 2 ? total : _step + 1);
+    const List<String> titles = <String>['Dein Ziel', 'Dein Umfang', 'Schlüssel'];
+    final List<Widget> body = _step == 0 ? _stepPlanning() : (_step == 1 ? _stepVolume() : _stepKey());
+    return ListView(
+      padding: EdgeInsets.zero,
+      children: <Widget>[
+        PageHeader(kicker: 'Schritt $shown von $total · Coach einrichten', title: titles[_step], band: true),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              if (_step == 0) ...<Widget>[
+                Text('Nur beim ersten Start. Danach ist der Coach ein normaler Chat.', style: bodyStyle(context, size: 14, color: c.text2)),
+                const SizedBox(height: 16),
+              ],
+              ...body,
+              const SizedBox(height: 18),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  for (int i = 0; i < total; i++)
+                    AnimatedContainer(
+                      duration: kFast,
+                      margin: const EdgeInsets.symmetric(horizontal: 3),
+                      width: i == shown - 1 ? 22 : 8,
+                      height: 8,
+                      color: i == shown - 1 ? c.text : c.border,
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              PrimaryButton(
+                label: _step == 2 ? (_saving ? 'Speichert …' : 'Chat öffnen') : 'Weiter',
+                height: 58,
+                fontSize: 21,
+                onPressed: _saving ? null : (_step == 2 ? _saveKey : _next),
+              ),
+              if (_step > 0 && !_keyOnly) ...<Widget>[
+                const SizedBox(height: 8),
+                SecondaryButton(
+                  label: 'Zurück',
+                  onPressed: () => setState(() => _step = _step == 2 && _draft.aiDecides ? 0 : _step - 1),
+                ),
+              ],
             ],
           ),
         ),

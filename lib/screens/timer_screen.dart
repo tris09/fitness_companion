@@ -88,6 +88,9 @@ class _TimerScreenState extends State<TimerScreen> {
   DateTime? _endAt;
   Timer? _ticker;
 
+  /// Start of the workout, for the real duration in the statistics.
+  final DateTime _startedAt = DateTime.now();
+
   @override
   void initState() {
     super.initState();
@@ -239,7 +242,7 @@ class _TimerScreenState extends State<TimerScreen> {
   void _next() {
     if (_index >= _steps.length - 1) {
       _ticker?.cancel();
-      AppScope.of(context).logWorkout(widget.plan);
+      AppScope.of(context).logWorkout(widget.plan, minutes: DateTime.now().difference(_startedAt).inMinutes);
       Navigator.of(context).pushReplacement(
         MaterialPageRoute<void>(builder: (BuildContext _) => SuccessScreen(plan: widget.plan)),
       );

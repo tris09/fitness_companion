@@ -75,6 +75,9 @@ class AuthGate extends StatelessWidget {
     if (state.firstName.isEmpty) {
       return const NameScreen();
     }
+    if (!state.themeChosen) {
+      return const ThemeChoiceScreen();
+    }
     if (!state.featuresChosen) {
       return const FeatureChoiceScreen();
     }
