@@ -26,6 +26,28 @@ class AppState extends ChangeNotifier {
   List<Plan> plans = <Plan>[];
   ThemeMode themeMode = ThemeMode.system;
 
+  /// Background style per mode: light 'stone' | 'white' | 'blue', dark 'black' | 'grey' | 'blue'.
+  String lightStyle = 'white';
+  String darkStyle = 'black';
+
+  /// First name, asked on the first page after login. Shown as "Hi, Name".
+  String firstName = '';
+
+  /// Black/white, thick borders, no title bar. For low vision.
+  bool highContrast = false;
+
+  /// Text size factor: 0.9, 1.0 or 1.15.
+  double textScale = 1.0;
+
+  /// Master switch for all push messages.
+  bool pushEnabled = true;
+
+  /// Reminder 30 minutes before a planned unit with a time.
+  bool trainingReminders = true;
+
+  /// Planned units in the calendar. Several per day are allowed.
+  List<ScheduledUnit> schedule = <ScheduledUnit>[];
+
   /// 'drag' = two lists with drag and drop, 'list' = vertical editor with buttons.
   String plannerMode = 'drag';
 
@@ -42,11 +64,11 @@ class AppState extends ChangeNotifier {
   /// The last finished workouts, newest last. The coach reads them as memory.
   List<WorkoutLog> history = <WorkoutLog>[];
 
-  /// Keep rule for [history]: a workout is deleted once it is older than
-  /// [_keepDays] days AND at least [_keepCount] newer workouts exist.
-  /// So the coach always sees the last 2 weeks, and at least the last 5 workouts.
-  static const int _keepDays = 14;
-  static const int _keepCount = 5;
+  /// Keep rule for all logged values (workouts, weights, body data, calendar,
+  /// day plans): see [DataLimits]. The coach does not get all of it:
+  /// coach_context.dart sends a short summary.
+  static const int keepDays = DataLimits.keepDays;
+  static const int _keepCount = DataLimits.keepWorkoutsAlways;
 
   /// Workouts per week (key = Monday of the week). Kept for the streak, not deleted with the history.
   Map<String, int> weeks = <String, int>{};
@@ -57,11 +79,33 @@ class AppState extends ChangeNotifier {
   /// Muscle group -> last training day. Kept on its own, so it survives the clean-up.
   Map<String, DateTime> muscleLast = <String, DateTime>{};
 
-  /// Logged weights per exercise id, newest last. At most 12 per exercise.
+  /// Logged weights per exercise id, newest last. Kept for 6 months.
   Map<String, List<WeightEntry>> weights = <String, List<WeightEntry>>{};
 
   /// Ask for the used weights after a workout. The user can switch it off.
   bool askWeights = true;
+
+  /// Body weight and measurements over time, oldest first. Kept for 6 months.
+  List<BodyEntry> bodyLog = <BodyEntry>[];
+
+  /// Weekly reminder to log the body weight (Monday 08:00).
+  bool bodyReminder = true;
+
+  /// Weekly summary of progress on the statistics page. Off by default.
+  bool weeklySummary = false;
+
+  /// Last weekly summary of the coach and the week it belongs to (Monday key).
+  String summaryText = '';
+  String summaryWeek = '';
+
+  /// Parts of the app the user chose. Can be changed in the settings at any time.
+  AppFeatures features = AppFeatures();
+
+  /// False until the user went through the feature choice once.
+  bool featuresChosen = false;
+
+  /// Order of the movable blocks on Home. News stays below them.
+  List<String> homeOrder = List<String>.of(kHomeBlocks);
 
   /// Two stretches before and after each workout.
   bool warmup = true;
@@ -71,7 +115,7 @@ class AppState extends ChangeNotifier {
 
   /// Short facts the coach should keep in mind, e.g. 'Knie schonen'.
   List<String> memory = <String>[];
-  static const int _maxMemory = 20;
+  static const int _maxMemory = DataLimits.maxMemory;
 
   /// Shopping lists, newest first.
   List<ShoppingList> shopping = <ShoppingList>[];
@@ -79,7 +123,7 @@ class AppState extends ChangeNotifier {
 
   /// The coach chat, newest last.
   List<ChatMessage> chat = <ChatMessage>[];
-  static const int _maxChat = 60;
+  static const int _maxChat = DataLimits.maxChat;
   StretchSettings stretch = StretchSettings();
   String stretchDay = '';
   List<String> stretchDone = <String>[];
@@ -98,6 +142,27 @@ class AppState extends ChangeNotifier {
         plans = rawPlans.map((dynamic e) => Plan.fromJson(Map<String, dynamic>.from(e as Map))).toList();
         final String mode = (j['themeMode'] as String?) ?? 'system';
         themeMode = mode == 'light' ? ThemeMode.light : (mode == 'dark' ? ThemeMode.dark : ThemeMode.system);
+        lightStyle = const <String>['stone', 'white', 'blue'].contains(j['lightStyle']) ? j['lightStyle'] as String : 'white';
+        // Before v21 Stein was the default. Move everyone once to the new default Weiß.
+        if (((j['styleV'] as num?) ?? 0) < 2) {
+          lightStyle = 'white';
+        }
+        firstName = (j['firstName'] as String?) ?? '';
+        darkStyle = const <String>['black', 'grey', 'blue'].contains(j['darkStyle']) ? j['darkStyle'] as String : 'black';
+        highContrast = j['highContrast'] == true;
+        final dynamic ts = j['textScale'];
+        textScale = ts is num && <double>[0.9, 1.0, 1.15].contains(ts.toDouble()) ? ts.toDouble() : 1.0;
+        pushEnabled = j['pushEnabled'] != false;
+        trainingReminders = j['trainingReminders'] != false;
+        schedule = <ScheduledUnit>[];
+        for (final dynamic e in (j['schedule'] as List<dynamic>?) ?? <dynamic>[]) {
+          if (e is Map) {
+            final ScheduledUnit? u = ScheduledUnit.fromJson(Map<String, dynamic>.from(e));
+            if (u != null) {
+              schedule.add(u);
+            }
+          }
+        }
         plannerMode = (j['plannerMode'] as String?) == 'list' ? 'list' : 'drag';
         coachModel = (j['coachModel'] as String?) ?? kDefaultCoachModel;
         // Version 10: switch old saved defaults to the Lite model once.
@@ -129,9 +194,27 @@ class AppState extends ChangeNotifier {
         final Map<String, dynamic> rawW = Map<String, dynamic>.from((j['weights'] as Map?) ?? <String, dynamic>{});
         weights = rawW.map((String k, dynamic v) => MapEntry<String, List<WeightEntry>>(
               k,
-              ((v as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => WeightEntry.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
+              ((v as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => WeightEntry.fromJson(e)).toList(),
             ));
+        _pruneValues();
         askWeights = j['askWeights'] != false;
+        bodyLog = <BodyEntry>[
+          for (final dynamic e in (j['bodyLog'] as List<dynamic>?) ?? <dynamic>[])
+            if (BodyEntry.fromJson(e) != null) BodyEntry.fromJson(e)!,
+        ];
+        bodyReminder = j['bodyReminder'] != false;
+        weeklySummary = j['weeklySummary'] == true;
+        // Apply the data limits once at start: old calendar entries and their day plans go.
+        _pruneSchedule();
+        summaryText = (j['summaryText'] as String?) ?? '';
+        summaryWeek = (j['summaryWeek'] as String?) ?? '';
+        if (j['features'] is Map) {
+          features = AppFeatures.fromJson(Map<String, dynamic>.from(j['features'] as Map));
+        }
+        // Users from before the feature choice already set everything up: do not ask again.
+        featuresChosen = j['featuresChosen'] == true || j['features'] == null && (j['body'] != null);
+        final List<String> order = ((j['homeOrder'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
+        homeOrder = _validOrder(order);
         warmup = j['warmup'] != false;
         welcomeSeen = j['welcomeSeen'] == true;
         memory = ((j['memory'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList();
@@ -196,6 +279,15 @@ class AppState extends ChangeNotifier {
         'lastProgram': lastProgramJson,
         'coachProfile': coachProfile.toJson(),
         'body': body.toJson(),
+        'lightStyle': lightStyle,
+        'styleV': 2,
+        'firstName': firstName,
+        'darkStyle': darkStyle,
+        'highContrast': highContrast,
+        'textScale': textScale,
+        'pushEnabled': pushEnabled,
+        'trainingReminders': trainingReminders,
+        'schedule': schedule.map((ScheduledUnit u) => u.toJson()).toList(),
         'history': history.map((WorkoutLog e) => e.toJson()).toList(),
         'weeks': weeks,
         'records': records,
@@ -203,6 +295,14 @@ class AppState extends ChangeNotifier {
         'memory': memory,
         'weights': weights.map((String k, List<WeightEntry> v) => MapEntry<String, dynamic>(k, v.map((WeightEntry e) => e.toJson()).toList())),
         'askWeights': askWeights,
+        'bodyLog': bodyLog.map((BodyEntry e) => e.toJson()).toList(),
+        'bodyReminder': bodyReminder,
+        'weeklySummary': weeklySummary,
+        'summaryText': summaryText,
+        'summaryWeek': summaryWeek,
+        'features': features.toJson(),
+        'featuresChosen': featuresChosen,
+        'homeOrder': homeOrder,
         'warmup': warmup,
         'welcomeSeen': welcomeSeen,
         'shopping': shopping.map((ShoppingList e) => e.toJson()).toList(),
@@ -317,9 +417,21 @@ class AppState extends ChangeNotifier {
     await Secrets.deleteAll();
     resetData();
     themeMode = ThemeMode.system;
+    lightStyle = 'white';
+    darkStyle = 'black';
+    firstName = '';
+    highContrast = false;
+    textScale = 1.0;
+    pushEnabled = true;
+    trainingReminders = true;
     plannerMode = 'drag';
     lastProgramJson = '';
     askWeights = true;
+    bodyReminder = true;
+    weeklySummary = false;
+    features = AppFeatures();
+    featuresChosen = false;
+    homeOrder = List<String>.of(kHomeBlocks);
     warmup = true;
     await signOut();
   }
@@ -340,13 +452,20 @@ class AppState extends ChangeNotifier {
     weights = <String, List<WeightEntry>>{};
     shopping = <ShoppingList>[];
     shop = ShopSettings();
+    schedule = <ScheduledUnit>[];
+    bodyLog = <BodyEntry>[];
+    summaryText = '';
+    summaryWeek = '';
     _changed();
-    NotificationService.instance.reschedule(stretch);
+    rescheduleReminders();
   }
 
   // ---- Plans ----
 
   String newId() => DateTime.now().microsecondsSinceEpoch.toString();
+
+  /// Plans under "Pläne": templates that can be put on any day.
+  List<Plan> get templates => plans.where((Plan p) => p.isTemplate).toList();
 
   void savePlan(Plan plan) {
     final int i = plans.indexWhere((Plan p) => p.id == plan.id);
@@ -360,12 +479,28 @@ class AppState extends ChangeNotifier {
 
   void deletePlan(String id) {
     plans.removeWhere((Plan p) => p.id == id);
+    _pruneSchedule();
     _changed();
+    rescheduleReminders();
   }
 
   void addPlans(List<Plan> list) {
     plans.addAll(list);
     _changed();
+  }
+
+  /// Creates a plan that belongs to [day] only and puts it in the calendar.
+  /// It is not listed under "Pläne" and is removed with its calendar entry.
+  void addDayPlan(DateTime day, Plan plan, {int? minute}) {
+    plan.day = _dayKey(day);
+    plans.add(plan);
+    addUnit(day, plan.id, minute: minute);
+  }
+
+  /// True when [day] may hold calendar entries (6 months back to 6 months ahead).
+  static bool canPlan(DateTime day) {
+    final DateTime d = DateTime(day.year, day.month, day.day);
+    return !d.isBefore(DataLimits.firstDay) && !d.isAfter(DataLimits.lastDay);
   }
 
   // ---- Coach ----
@@ -377,8 +512,102 @@ class AppState extends ChangeNotifier {
   }
 
   void saveBody(BodyProfile b) {
+    final bool changed = (b.weightKg - body.weightKg).abs() > 0.01 || bodyLog.isEmpty;
     body = b.copy()..done = true;
+    if (changed) {
+      _addBody(BodyEntry(date: DateTime.now(), weightKg: b.weightKg));
+    }
     _changed();
+  }
+
+  // ---- Body tracking ----
+
+  /// Saves a measurement. One entry per day: a second one the same day replaces the first.
+  void logBody(BodyEntry e) {
+    _addBody(e);
+    body.weightKg = e.weightKg;
+    _changed();
+  }
+
+  void _addBody(BodyEntry e) {
+    bodyLog.removeWhere((BodyEntry x) => dayNumber(x.date) == dayNumber(e.date));
+    bodyLog.add(e);
+    bodyLog.sort((BodyEntry a, BodyEntry b) => a.date.compareTo(b.date));
+    _pruneValues();
+  }
+
+  void removeBody(BodyEntry e) {
+    bodyLog.remove(e);
+    _changed();
+  }
+
+  BodyEntry? get lastBody => bodyLog.isEmpty ? null : bodyLog.last;
+
+  /// True when the last body entry is 7 days old or older.
+  bool get bodyDue {
+    final BodyEntry? l = lastBody;
+    return l == null || DateTime.now().difference(l.date).inDays >= 7;
+  }
+
+  void setBodyReminder(bool v) {
+    bodyReminder = v;
+    _changed();
+    rescheduleReminders();
+  }
+
+  void setWeeklySummary(bool v) {
+    weeklySummary = v;
+    _changed();
+  }
+
+  /// The summary is due from Sunday on, once per week.
+  bool get summaryDue {
+    final DateTime now = DateTime.now();
+    return weeklySummary && now.weekday == DateTime.sunday && summaryWeek != weekKey(now) ||
+        weeklySummary && summaryText.isEmpty;
+  }
+
+  void saveSummary(String text) {
+    summaryText = text.trim();
+    summaryWeek = weekKey(DateTime.now());
+    _changed();
+  }
+
+  // ---- Features and Home layout ----
+
+  void setFeatures(AppFeatures f) {
+    features = f.copy();
+    featuresChosen = true;
+    _changed();
+    rescheduleReminders();
+  }
+
+  static List<String> _validOrder(List<String> o) {
+    final List<String> out = o.where((String e) => kHomeBlocks.contains(e)).toSet().toList();
+    for (final String b in kHomeBlocks) {
+      if (!out.contains(b)) {
+        out.add(b);
+      }
+    }
+    return out;
+  }
+
+  void setHomeOrder(List<String> order) {
+    homeOrder = _validOrder(order);
+    _changed();
+  }
+
+  void resetHome() {
+    homeOrder = List<String>.of(kHomeBlocks);
+    _changed();
+  }
+
+  /// Drops values older than 6 months: weights, body data and calendar entries.
+  void _pruneValues() {
+    final DateTime limit = DateTime.now().subtract(const Duration(days: keepDays));
+    weights.forEach((String _, List<WeightEntry> l) => l.removeWhere((WeightEntry e) => e.date.isBefore(limit)));
+    weights.removeWhere((String _, List<WeightEntry> l) => l.isEmpty);
+    bodyLog.removeWhere((BodyEntry e) => e.date.isBefore(limit));
   }
 
   /// Remembers a finished workout for the coach.
@@ -396,10 +625,10 @@ class AppState extends ChangeNotifier {
     _changed();
   }
 
-  /// Applies the keep rule (see [_keepDays] and [_keepCount]).
+  /// Applies the keep rule (see [keepDays] and [_keepCount]).
   void _pruneHistory() {
     history.sort((WorkoutLog a, WorkoutLog b) => a.date.compareTo(b.date));
-    final DateTime limit = DateTime.now().subtract(const Duration(days: _keepDays));
+    final DateTime limit = DateTime.now().subtract(const Duration(days: keepDays));
     final List<WorkoutLog> kept = <WorkoutLog>[];
     for (int i = 0; i < history.length; i++) {
       final bool recent = history[i].date.isAfter(limit);
@@ -440,7 +669,7 @@ class AppState extends ChangeNotifier {
       return;
     }
     final CoachProgram program = CoachProgram.parse(m.programJson);
-    plans.addAll(program.toPlans(newId));
+    _storeProgram(program);
     m.saved = true;
     _changed();
   }
@@ -453,10 +682,8 @@ class AppState extends ChangeNotifier {
       if (e.kg > (records[id] ?? 0)) {
         records[id] = e.kg;
       }
-      if (list.length > 12) {
-        list.removeRange(0, list.length - 12);
-      }
     });
+    _pruneValues();
     _changed();
   }
 
@@ -512,8 +739,8 @@ class AppState extends ChangeNotifier {
       return;
     }
     shopping.insert(0, ShoppingList.fromJson(Map<String, dynamic>.from(jsonDecode(m.listJson) as Map)));
-    if (shopping.length > 5) {
-      shopping = shopping.sublist(0, 5);
+    if (shopping.length > DataLimits.maxShoppingLists) {
+      shopping = shopping.sublist(0, DataLimits.maxShoppingLists);
     }
     m.listSaved = true;
     _changed();
@@ -543,8 +770,30 @@ class AppState extends ChangeNotifier {
   /// Saves the programme of the coach as plans on the device.
   void saveProgram(CoachProgram program) {
     lastProgramJson = program.json;
-    plans.addAll(program.toPlans(newId));
+    _storeProgram(program);
     _changed();
+  }
+
+  /// Days with a date go to the calendar only (day plans). Days without a
+  /// date become templates under "Pläne".
+  void _storeProgram(CoachProgram program) {
+    final List<Plan> list = program.toPlans(newId);
+    bool scheduled = false;
+    for (int i = 0; i < list.length; i++) {
+      final DateTime? date = program.days[i].date;
+      if (date != null && canPlan(date)) {
+        list[i].day = _dayKey(date);
+        plans.add(list[i]);
+        schedule.add(ScheduledUnit(id: '${newId()}_u$i', day: _dayKey(date), planId: list[i].id));
+        scheduled = true;
+      } else {
+        plans.add(list[i]);
+      }
+    }
+    if (scheduled) {
+      _pruneSchedule();
+      rescheduleReminders();
+    }
   }
 
   void setPlannerMode(String mode) {
@@ -557,6 +806,144 @@ class AppState extends ChangeNotifier {
   void setThemeMode(ThemeMode mode) {
     themeMode = mode;
     _changed();
+  }
+
+  void setFirstName(String v) {
+    firstName = v.trim();
+    _changed();
+  }
+
+  void setLightStyle(String v) {
+    lightStyle = v;
+    _changed();
+  }
+
+  void setDarkStyle(String v) {
+    darkStyle = v;
+    _changed();
+  }
+
+  void setHighContrast(bool v) {
+    highContrast = v;
+    _changed();
+  }
+
+  void setTextScale(double v) {
+    textScale = v;
+    _changed();
+  }
+
+  // ---- Push messages ----
+
+  void setPushEnabled(bool v) {
+    pushEnabled = v;
+    _changed();
+    rescheduleReminders();
+  }
+
+  void setTrainingReminders(bool v) {
+    trainingReminders = v;
+    _changed();
+    rescheduleReminders();
+  }
+
+  /// Plans all reminders again: stretch breaks and training reminders.
+  void rescheduleReminders() {
+    NotificationService.instance.reschedule(pushEnabled && features.stretch ? stretch : StretchSettings());
+    NotificationService.instance.scheduleBodyReminder(pushEnabled && features.tracking && bodyReminder);
+    NotificationService.instance.scheduleTraining(
+      pushEnabled && trainingReminders ? schedule : <ScheduledUnit>[],
+      (String id) => planById(id)?.name ?? 'Training',
+    );
+  }
+
+  // ---- Calendar ----
+
+  static String dayKeyOf(DateTime d) => _dayKey(d);
+
+  List<ScheduledUnit> unitsOn(DateTime d) {
+    final String k = _dayKey(d);
+    final List<ScheduledUnit> list = schedule.where((ScheduledUnit u) => u.day == k && planById(u.planId) != null).toList();
+    list.sort((ScheduledUnit a, ScheduledUnit b) => (a.minute ?? 9999).compareTo(b.minute ?? 9999));
+    return list;
+  }
+
+  Plan? planById(String id) {
+    for (final Plan p in plans) {
+      if (p.id == id) {
+        return p;
+      }
+    }
+    return null;
+  }
+
+  /// Next day from today on (including today) with at least one unit.
+  DateTime? nextTrainingDay() {
+    final DateTime now = DateTime.now();
+    for (int i = 0; i < 60; i++) {
+      final DateTime d = DateTime(now.year, now.month, now.day + i);
+      if (unitsOn(d).isNotEmpty) {
+        return d;
+      }
+    }
+    return null;
+  }
+
+  void addUnit(DateTime day, String planId, {int? minute}) {
+    if (!canPlan(day)) {
+      return;
+    }
+    schedule.add(ScheduledUnit(
+      id: '${DateTime.now().microsecondsSinceEpoch}',
+      day: _dayKey(day),
+      planId: planId,
+      minute: minute,
+    ));
+    _pruneSchedule();
+    _changed();
+    rescheduleReminders();
+  }
+
+  void removeUnit(String id) {
+    schedule.removeWhere((ScheduledUnit u) => u.id == id);
+    _pruneSchedule();
+    _changed();
+    rescheduleReminders();
+  }
+
+  /// Day of a key like '2026-11-19'. Null when the key is broken.
+  static DateTime? dayFromKey(String k) => _parseDayKey(k);
+
+  static DateTime? _parseDayKey(String k) {
+    final List<String> p = k.split('-');
+    if (p.length != 3) {
+      return null;
+    }
+    return DateTime(int.tryParse(p[0]) ?? 0, int.tryParse(p[1]) ?? 1, int.tryParse(p[2]) ?? 1);
+  }
+
+  /// Applies [DataLimits] to the calendar: drops entries outside the window and
+  /// entries of deleted plans, then day plans that no entry uses any more
+  /// (a day plan lives exactly as long as its calendar entry). Hard caps last.
+  void _pruneSchedule() {
+    final DateTime first = DataLimits.firstDay;
+    schedule.removeWhere((ScheduledUnit u) {
+      final DateTime? d = _parseDayKey(u.day);
+      return d == null || d.isBefore(first) || planById(u.planId) == null;
+    });
+    if (schedule.length > DataLimits.maxUnits) {
+      schedule.sort((ScheduledUnit a, ScheduledUnit b) => _parseDayKey(a.day)!.compareTo(_parseDayKey(b.day)!));
+      schedule = schedule.sublist(schedule.length - DataLimits.maxUnits);
+    }
+    final Set<String> used = schedule.map((ScheduledUnit u) => u.planId).toSet();
+    plans.removeWhere((Plan p) => !p.isTemplate && !used.contains(p.id));
+    final List<Plan> dayPlans = plans.where((Plan p) => !p.isTemplate).toList();
+    if (dayPlans.length > DataLimits.maxDayPlans) {
+      dayPlans.sort((Plan a, Plan b) => (_parseDayKey(a.day!) ?? first).compareTo(_parseDayKey(b.day!) ?? first));
+      final Set<String> drop = dayPlans.take(dayPlans.length - DataLimits.maxDayPlans).map((Plan p) => p.id).toSet();
+      plans.removeWhere((Plan p) => drop.contains(p.id));
+      schedule.removeWhere((ScheduledUnit u) => drop.contains(u.planId));
+    }
   }
 
   // ---- Stretch breaks ----
@@ -602,7 +989,7 @@ class AppState extends ChangeNotifier {
   void updateStretch(StretchSettings settings) {
     stretch = settings;
     _changed();
-    NotificationService.instance.reschedule(stretch);
+    rescheduleReminders();
   }
 
   void markStretchDone(String id) {

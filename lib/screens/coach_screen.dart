@@ -342,7 +342,7 @@ class _CoachScreenState extends State<CoachScreen> {
           ),
           if (_keyError != null) ...<Widget>[
             const SizedBox(height: 8),
-            Text(_keyError!, style: bodyStyle(context, size: 14, weight: FontWeight.w600)),
+            ErrorNote(_keyError!),
           ],
           const SizedBox(height: 12),
           PrimaryButton(label: 'Schlüssel speichern', height: 52, onPressed: _saveKey),
@@ -605,7 +605,7 @@ class _CoachScreenState extends State<CoachScreen> {
           show: _error != null,
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Text(_error ?? '', style: bodyStyle(context, size: 14, weight: FontWeight.w600)),
+            child: ErrorNote(_error ?? ''),
           ),
         ),
         PrimaryButton(
@@ -617,10 +617,7 @@ class _CoachScreenState extends State<CoachScreen> {
         if (!hasKey && _keyLoaded)
           Padding(
             padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Speichere zuerst deinen API-Schlüssel.',
-              style: bodyStyle(context, size: 13, color: c.text2),
-            ),
+            child: const ErrorNote('Speichere zuerst deinen API-Schlüssel.', icon: Icons.key_outlined),
           ),
         const SizedBox(height: 8),
         Text(
@@ -649,7 +646,7 @@ class _CoachScreenState extends State<CoachScreen> {
     return ListView(
       padding: EdgeInsets.zero,
       children: <Widget>[
-        const PageHeader(kicker: 'Dein persönlicher Coach', title: 'Coach'),
+        const PageHeader(kicker: 'Dein persönlicher Coach', title: 'Coach', band: true),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(

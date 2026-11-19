@@ -20,10 +20,6 @@ class RootScreen extends StatefulWidget {
 
 class _RootScreenState extends State<RootScreen> {
   int _index = 0;
-  final PageController _pages = PageController();
-
-  /// True while a tap on the bar moves the pages. Then the bar ignores the pages in between.
-  bool _moving = false;
 
   @override
   void initState() {
@@ -41,67 +37,71 @@ class _RootScreenState extends State<RootScreen> {
     });
   }
 
-  @override
-  void dispose() {
-    _pages.dispose();
-    super.dispose();
-  }
-
-  /// Slides to a tab. Far jumps skip the pages in between, so the move stays short.
-  Future<void> _go(int i) async {
+  /// Tabs change with a fade. Sideways slides are kept for the days on Home,
+  /// so the two kinds of movement stay easy to tell apart.
+  void _go(int i) {
     if (i == _index) {
       return;
     }
-    final int from = _index;
     setState(() {
       _index = i;
     });
-    _moving = true;
-    if ((i - from).abs() > 1) {
-      _pages.jumpToPage(i > from ? i - 1 : i + 1);
-    }
-    await _pages.animateToPage(i, duration: const Duration(milliseconds: 280), curve: kEase);
-    _moving = false;
   }
 
   @override
   Widget build(BuildContext context) {
     final AppColors c = AppColors.of(context);
+    final AppState state = AppScope.of(context);
+    // Tabs follow the chosen features. Home and Pläne are always there.
+    final List<String> labels = <String>['Home', 'Pläne', if (state.features.coach) 'Coach', if (state.features.food) 'Essen'];
+    if (_index >= labels.length) {
+      _index = 0;
+    }
+    final int foodIndex = labels.indexOf('Essen');
     final List<Widget> pages = <Widget>[
-      HomeScreen(onOpenTab: _go),
+      HomeScreen(onOpenTab: _go, onOpenFood: foodIndex < 0 ? null : () => _go(foodIndex)),
       const PlansScreen(),
-      CoachScreen(onOpenTab: _go),
-      const NutritionScreen(),
+      if (state.features.coach) CoachScreen(onOpenTab: _go),
+      if (state.features.food) const NutritionScreen(),
     ];
-    const List<String> labels = <String>['Home', 'Pläne', 'Coach', 'Essen'];
-    const List<IconData> icons = <IconData>[
-      Icons.home_outlined,
-      Icons.list_alt,
-      Icons.chat_bubble_outline,
-      Icons.restaurant,
-    ];
+    const Map<String, IconData> iconOf = <String, IconData>{
+      'Home': Icons.home_outlined,
+      'Pläne': Icons.calendar_month_outlined,
+      'Coach': Icons.chat_bubble_outline,
+      'Essen': Icons.restaurant,
+    };
+    final List<IconData> icons = labels.map((String l) => iconOf[l]!).toList();
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        // Swipe sideways between the tabs. Each tab keeps its state.
-        child: PageView(
-          controller: _pages,
-          onPageChanged: (int i) {
-            if (!_moving && i != _index) {
-              setState(() {
-                _index = i;
-              });
-            }
-          },
-          children: <Widget>[
-            for (final Widget p in pages) _KeepAlive(child: p),
-          ],
-        ),
+      // No top safe area here: the title bars of the tabs reach up under the status bar.
+      body: Stack(
+        children: <Widget>[
+          for (int i = 0; i < pages.length; i++)
+            Positioned.fill(
+              key: ValueKey<String>(labels[i]),
+              // The fade sits outside TickerMode. Inside it, a hidden tab paused its
+              // own fade-out and stayed visible on top of the new tab.
+              child: IgnorePointer(
+                ignoring: i != _index,
+                child: AnimatedOpacity(
+                  opacity: i == _index ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOut,
+                  child: TickerMode(
+                    enabled: i == _index,
+                    child: ExcludeSemantics(
+                      excluding: i != _index,
+                      child: ColoredBox(color: c.bg, child: pages[i]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          color: c.bg,
-          border: Border(top: BorderSide(color: c.border)),
+          color: c.navBar,
+          border: Border(top: BorderSide(color: c.border, width: c.borderWidth)),
         ),
         child: SafeArea(
           top: false,
@@ -112,37 +112,52 @@ class _RootScreenState extends State<RootScreen> {
                   child: Semantics(
                     button: true,
                     selected: i == _index,
+                    label: labels[i],
                     child: InkWell(
                       onTap: () => _go(i),
-                      child: SizedBox(
-                        height: 68,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      child: AnimatedContainer(
+                        duration: kFast,
+                        curve: kEase,
+                        height: 66,
+                        color: i == _index ? c.navActiveBg : Colors.transparent,
+                        child: Stack(
                           children: <Widget>[
-                            // The active tab gets a filled field behind the icon.
-                            // Black with lime in light mode, lime with black in dark mode.
-                            AnimatedContainer(
-                              duration: kFast,
-                              curve: kEase,
-                              width: 52,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: i == _index ? c.accent : Colors.transparent,
-                                borderRadius: BorderRadius.circular(kRadius),
+                            // Line on top of the active tab. Full width in light mode, short in dark mode.
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              child: Center(
+                                child: FractionallySizedBox(
+                                  widthFactor: c.navFullLine ? 1 : 0.4,
+                                  child: AnimatedContainer(
+                                    duration: kFast,
+                                    curve: kEase,
+                                    height: c.navFullLine ? 3 : 2,
+                                    color: i == _index ? c.navLine : Colors.transparent,
+                                  ),
+                                ),
                               ),
-                              child: Icon(icons[i], size: 24, color: i == _index ? c.onAccent : c.text2),
                             ),
-                            const SizedBox(height: 4),
-                            AnimatedDefaultTextStyle(
-                              duration: kFast,
-                              curve: kEase,
-                              style: bodyStyle(
-                                context,
-                                size: 11,
-                                weight: i == _index ? FontWeight.w700 : FontWeight.w600,
-                                color: i == _index ? c.text : c.text2,
+                            Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(icons[i], size: 24, color: i == _index ? c.navActiveFg : c.text2),
+                                  const SizedBox(height: 4),
+                                  AnimatedDefaultTextStyle(
+                                    duration: kFast,
+                                    curve: kEase,
+                                    style: bodyStyle(
+                                      context,
+                                      size: 11,
+                                      weight: i == _index ? FontWeight.w700 : FontWeight.w600,
+                                      color: i == _index ? c.navActiveFg : c.text2,
+                                    ),
+                                    child: Text(labels[i]),
+                                  ),
+                                ],
                               ),
-                              child: Text(labels[i]),
                             ),
                           ],
                         ),
@@ -155,27 +170,6 @@ class _RootScreenState extends State<RootScreen> {
         ),
       ),
     );
-  }
-}
-
-/// Keeps a tab alive while it is out of view in the page view.
-class _KeepAlive extends StatefulWidget {
-  final Widget child;
-
-  const _KeepAlive({required this.child});
-
-  @override
-  State<_KeepAlive> createState() => _KeepAliveState();
-}
-
-class _KeepAliveState extends State<_KeepAlive> with AutomaticKeepAliveClientMixin {
-  @override
-  bool get wantKeepAlive => true;
-
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-    return widget.child;
   }
 }
 

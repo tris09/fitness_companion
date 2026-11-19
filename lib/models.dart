@@ -86,12 +86,58 @@ class PlanItem {
   }
 }
 
+/// Every storage limit of the app in one place ("Gesamtmax").
+/// Everything with a date follows the same rule: kept for [keepDays] back,
+/// planned at most [aheadDays] ahead. Counts are hard caps on top of that.
+class DataLimits {
+  /// Workouts, weights, body data, calendar entries and day plans: 6 months back.
+  static const int keepDays = 183;
+
+  /// The calendar can be planned at most 6 months ahead.
+  static const int aheadDays = 183;
+
+  /// The newest workouts stay even when older than [keepDays].
+  static const int keepWorkoutsAlways = 5;
+
+  /// Plans that belong to one calendar day (not shown under "Pläne").
+  static const int maxDayPlans = 250;
+
+  /// Calendar entries in total.
+  static const int maxUnits = 500;
+
+  /// Coach chat messages on the device (the coach itself only gets the last 8).
+  static const int maxChat = 60;
+
+  /// Facts the coach remembers.
+  static const int maxMemory = 20;
+
+  /// Shopping lists.
+  static const int maxShoppingLists = 5;
+
+  /// First and last day that may hold calendar entries, from today.
+  static DateTime get firstDay {
+    final DateTime n = DateTime.now();
+    return DateTime(n.year, n.month, n.day - keepDays);
+  }
+
+  static DateTime get lastDay {
+    final DateTime n = DateTime.now();
+    return DateTime(n.year, n.month, n.day + aheadDays);
+  }
+}
+
 class Plan {
   String id;
   String name;
   List<PlanItem> items;
 
-  Plan({required this.id, required this.name, required this.items});
+  /// Calendar day ('yyyy-m-d') when the plan belongs to one day only.
+  /// Null = template: listed under "Pläne" and usable on any day.
+  String? day;
+
+  Plan({required this.id, required this.name, required this.items, this.day});
+
+  bool get isTemplate => day == null;
 
   /// Rough length of the plan in minutes.
   int get estimatedMinutes {
@@ -104,7 +150,7 @@ class Plan {
   }
 
   Plan copy() {
-    return Plan(id: id, name: name, items: items.map((PlanItem e) => e.copy()).toList());
+    return Plan(id: id, name: name, items: items.map((PlanItem e) => e.copy()).toList(), day: day);
   }
 
   Map<String, dynamic> toJson() {
@@ -112,6 +158,7 @@ class Plan {
       'id': id,
       'name': name,
       'items': items.map((PlanItem e) => e.toJson()).toList(),
+      if (day != null) 'day': day,
     };
   }
 
@@ -121,6 +168,7 @@ class Plan {
       id: '${j['id']}',
       name: (j['name'] as String?) ?? 'Plan',
       items: raw.map((dynamic e) => PlanItem.fromJson(Map<String, dynamic>.from(e as Map))).toList(),
+      day: (j['day'] as String?)?.isNotEmpty == true ? j['day'] as String : null,
     );
   }
 }
@@ -369,13 +417,27 @@ class WorkoutLog {
 
   WorkoutLog({required this.date, required this.planName, required this.items});
 
+  /// Compact form: date as day number, items as [id, sets, reps].
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'date': date.toIso8601String(),
-        'planName': planName,
-        'items': items.map((PlanItem e) => e.toJson()).toList(),
+        'd': dayNumber(date),
+        'n': planName,
+        'i': items.map((PlanItem e) => <dynamic>[e.exerciseId, e.sets, e.reps]).toList(),
       };
 
+  /// Reads the compact form and the older long form.
   factory WorkoutLog.fromJson(Map<String, dynamic> j) {
+    if (j.containsKey('d')) {
+      final List<dynamic> raw = (j['i'] as List<dynamic>?) ?? <dynamic>[];
+      return WorkoutLog(
+        date: dateOfDayNumber((j['d'] as num).toInt()),
+        planName: '${j['n'] ?? ''}',
+        items: <PlanItem>[
+          for (final dynamic e in raw)
+            if (e is List && e.length >= 3)
+              PlanItem(exerciseId: '${e[0]}', sets: (e[1] as num).toInt(), reps: (e[2] as num).toInt(), restSec: 60),
+        ],
+      );
+    }
     final List<dynamic> raw = (j['items'] as List<dynamic>?) ?? <dynamic>[];
     return WorkoutLog(
       date: DateTime.tryParse('${j['date']}') ?? DateTime.now(),
@@ -547,19 +609,66 @@ class WeightEntry {
 
   const WeightEntry({required this.date, required this.kg, required this.reps, this.feel = ''});
 
-  Map<String, dynamic> toJson() => <String, dynamic>{
-        'date': date.toIso8601String(),
-        'kg': kg,
-        'reps': reps,
-        'feel': feel,
-      };
+  static const List<String> _feels = <String>['', 'leicht', 'passt', 'schwer'];
 
-  factory WeightEntry.fromJson(Map<String, dynamic> j) {
+  /// Compact form to keep 6 months small: [day number, kg x 10, reps, feel code].
+  List<int> toJson() => <int>[dayNumber(date), (kg * 10).round(), reps, _feels.indexOf(feel).clamp(0, 3)];
+
+  /// Reads the compact list and the older map form.
+  factory WeightEntry.fromJson(dynamic j) {
+    if (j is List && j.length >= 3) {
+      final int f = j.length > 3 ? (j[3] as num).toInt() : 0;
+      return WeightEntry(
+        date: dateOfDayNumber((j[0] as num).toInt()),
+        kg: (j[1] as num).toDouble() / 10,
+        reps: (j[2] as num).toInt(),
+        feel: _feels[f.clamp(0, 3)],
+      );
+    }
+    final Map<String, dynamic> m = Map<String, dynamic>.from(j as Map);
     return WeightEntry(
-      date: DateTime.tryParse('${j['date']}') ?? DateTime.now(),
-      kg: (j['kg'] as num?)?.toDouble() ?? 0,
-      reps: (j['reps'] as num?)?.toInt() ?? 0,
-      feel: '${j['feel'] ?? ''}',
+      date: DateTime.tryParse('${m['date']}') ?? DateTime.now(),
+      kg: (m['kg'] as num?)?.toDouble() ?? 0,
+      reps: (m['reps'] as num?)?.toInt() ?? 0,
+      feel: '${m['feel'] ?? ''}',
+    );
+  }
+}
+
+/// Days since 1.1.2020. Small numbers for compact storage.
+int dayNumber(DateTime d) => DateTime.utc(d.year, d.month, d.day).difference(DateTime.utc(2020)).inDays;
+DateTime dateOfDayNumber(int n) {
+  final DateTime u = DateTime.utc(2020).add(Duration(days: n));
+  return DateTime(u.year, u.month, u.day);
+}
+
+/// One body measurement. Weight is required, the rest optional.
+class BodyEntry {
+  final DateTime date;
+  final double weightKg;
+  final double? fatPercent;
+  final double? waistCm;
+
+  const BodyEntry({required this.date, required this.weightKg, this.fatPercent, this.waistCm});
+
+  /// [day number, kg x 10, fat x 10 or -1, waist x 10 or -1]
+  List<int> toJson() => <int>[
+        dayNumber(date),
+        (weightKg * 10).round(),
+        fatPercent == null ? -1 : (fatPercent! * 10).round(),
+        waistCm == null ? -1 : (waistCm! * 10).round(),
+      ];
+
+  static BodyEntry? fromJson(dynamic j) {
+    if (j is! List || j.length < 2) {
+      return null;
+    }
+    double? opt(int i) => j.length > i && (j[i] as num) >= 0 ? (j[i] as num).toDouble() / 10 : null;
+    return BodyEntry(
+      date: dateOfDayNumber((j[0] as num).toInt()),
+      weightKg: (j[1] as num).toDouble() / 10,
+      fatPercent: opt(2),
+      waistCm: opt(3),
     );
   }
 }
@@ -572,3 +681,73 @@ String formatKg(double kg) {
   final String n = kg == kg.roundToDouble() ? kg.toStringAsFixed(0) : kg.toStringAsFixed(1);
   return '${n.replaceAll('.', ',')} kg';
 }
+
+/// One planned unit on a calendar day. A day can hold several.
+class ScheduledUnit {
+  final String id;
+
+  /// Day as 'yyyy-m-d' (same format as the rest of the app).
+  final String day;
+  final String planId;
+
+  /// Minutes after midnight, or null when no time was given.
+  final int? minute;
+
+  ScheduledUnit({required this.id, required this.day, required this.planId, this.minute});
+
+  /// A reminder is sent 30 minutes before, only when a time is set.
+  bool get hasTime => minute != null;
+
+  String get timeText {
+    if (minute == null) {
+      return '';
+    }
+    final int h = minute! ~/ 60;
+    final int m = minute! % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
+  }
+
+  Map<String, dynamic> toJson() => <String, dynamic>{'id': id, 'day': day, 'planId': planId, 'minute': minute};
+
+  static ScheduledUnit? fromJson(Map<String, dynamic> j) {
+    final String day = (j['day'] as String?) ?? '';
+    final String planId = '${j['planId'] ?? ''}';
+    if (day.isEmpty || planId.isEmpty) {
+      return null;
+    }
+    final dynamic m = j['minute'];
+    return ScheduledUnit(
+      id: '${j['id'] ?? DateTime.now().microsecondsSinceEpoch}',
+      day: day,
+      planId: planId,
+      minute: m is num ? m.toInt().clamp(0, 24 * 60 - 1) : null,
+    );
+  }
+}
+
+/// Parts of the app the user can switch on and off. Training planning is always on.
+class AppFeatures {
+  bool coach;
+  bool tracking;
+  bool stretch;
+  bool food;
+  bool news;
+
+  AppFeatures({this.coach = true, this.tracking = true, this.stretch = true, this.food = true, this.news = true});
+
+  AppFeatures copy() => AppFeatures(coach: coach, tracking: tracking, stretch: stretch, food: food, news: news);
+
+  Map<String, dynamic> toJson() =>
+      <String, dynamic>{'coach': coach, 'tracking': tracking, 'stretch': stretch, 'food': food, 'news': news};
+
+  static AppFeatures fromJson(Map<String, dynamic> j) => AppFeatures(
+        coach: j['coach'] != false,
+        tracking: j['tracking'] != false,
+        stretch: j['stretch'] != false,
+        food: j['food'] != false,
+        news: j['news'] != false,
+      );
+}
+
+/// Blocks on Home that the user can move. News is not in the list: it is always last.
+const List<String> kHomeBlocks = <String>['calendar', 'ad', 'tiles'];

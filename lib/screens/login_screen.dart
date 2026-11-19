@@ -108,8 +108,10 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 40, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
           children: <Widget>[
+            const Align(alignment: Alignment.centerLeft, child: AppLogo(size: 72)),
+            const SizedBox(height: 24),
             const SectionLabel('Willkommen'),
             const SizedBox(height: 8),
             Text(_register ? 'REGISTRIEREN' : 'ANMELDEN', style: heading(context, 52)),
@@ -178,7 +180,7 @@ class _LoginScreenState extends State<LoginScreen> {
               show: _error != null,
               child: Padding(
                 padding: const EdgeInsets.only(top: 12),
-                child: Text(_error ?? '', style: bodyStyle(context, size: 14, weight: FontWeight.w600)),
+                child: ErrorNote(_error ?? ''),
               ),
             ),
             const SizedBox(height: 16),

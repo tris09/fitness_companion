@@ -330,8 +330,23 @@ class _TimerScreenState extends State<TimerScreen> {
     return 'Danach automatisch: ${upcoming.exercise!.name}, Satz ${upcoming.set}';
   }
 
+  /// The training screen is always dark (graphite, not pure black) and uses large type,
+  /// so it stays readable from a distance, e.g. with the phone on the floor.
   @override
   Widget build(BuildContext context) {
+    return Theme(
+      data: buildTheme(Brightness.dark, colors: kTrainingColors),
+      child: MediaQuery(
+        // Keep the user's text size, but never smaller than normal here.
+        data: MediaQuery.of(context).copyWith(
+          textScaler: TextScaler.linear(MediaQuery.textScalerOf(context).scale(1) < 1 ? 1 : MediaQuery.textScalerOf(context).scale(1)),
+        ),
+        child: Builder(builder: _buildInner),
+      ),
+    );
+  }
+
+  Widget _buildInner(BuildContext context) {
     final AppColors c = AppColors.of(context);
     final AppState state = AppScope.of(context);
     if (_steps.isEmpty) {
@@ -407,14 +422,14 @@ class _TimerScreenState extends State<TimerScreen> {
                         children: <Widget>[
                           SectionLabel(_info(step)),
                           const SizedBox(height: 6),
-                          Text(title.toUpperCase(), style: heading(context, 32)),
+                          Text(title.toUpperCase(), style: heading(context, 46)),
                           const SizedBox(height: 4),
-                          Text(sub, style: bodyStyle(context, size: 13, color: c.text2)),
+                          Text(sub, style: bodyStyle(context, size: 16, weight: FontWeight.w600, color: c.text2)),
                           if (kg != null) ...<Widget>[
                             const SizedBox(height: 6),
                             Text(
-                              'Gewicht: ${formatKg(kg)}',
-                              style: bodyStyle(context, size: 15, weight: FontWeight.w700, color: c.accentText),
+                              'GEWICHT ${formatKg(kg).toUpperCase()}',
+                              style: heading(context, 30, color: c.text),
                             ),
                           ],
                         ],
@@ -430,13 +445,13 @@ class _TimerScreenState extends State<TimerScreen> {
                             fit: BoxFit.scaleDown,
                             child: Text(
                               countdown ? formatClock(_remaining) : '${step.reps}×',
-                              style: heading(context, 140).copyWith(
+                              style: heading(context, 210, color: countdown ? c.text : c.accentText).copyWith(
                                 fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
                               ),
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(_nextText(upcoming), textAlign: TextAlign.center, style: bodyStyle(context, size: 14, color: c.text2)),
+                          Text(_nextText(upcoming), textAlign: TextAlign.center, style: bodyStyle(context, size: 17, weight: FontWeight.w600, color: c.text2)),
                           if (step.limit)
                             Padding(
                               padding: const EdgeInsets.only(top: 4),

@@ -1,185 +1,84 @@
 import 'package:flutter/material.dart';
 
-import '../models.dart';
 import '../state.dart';
 import '../theme.dart';
-import '../widgets/common.dart';
-import 'chat_screen.dart';
-import 'planner_screen.dart';
-import 'progress_screen.dart';
-import 'settings_screen.dart';
-import 'stretch_screen.dart';
-import 'timer_screen.dart';
 import '../training_memory.dart';
+import '../widgets/common.dart';
+import '../widgets/day_planner.dart';
+import '../widgets/home_blocks.dart';
+import '../widgets/profile_sheet.dart';
+import 'chat_screen.dart';
+import 'home_edit_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   final void Function(int index) onOpenTab;
 
-  const HomeScreen({super.key, required this.onOpenTab});
+  /// Opens the food tab. Null when the food feature is off.
+  final VoidCallback? onOpenFood;
 
-  void _openSettings(BuildContext context) {
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const SettingsScreen()));
+  const HomeScreen({super.key, required this.onOpenTab, this.onOpenFood});
+
+  /// First name as entered after login.
+  static String firstName(AppState state) => state.firstName;
+
+  Widget _block(BuildContext context, AppState state, String id) {
+    switch (id) {
+      case 'calendar':
+        return const DayPlanner();
+      case 'ad':
+        return const AdCard();
+      case 'tiles':
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Expanded(child: SectionLabel('Deine Kacheln')),
+                TextButton(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const HomeEditScreen())),
+                  child: Text('Anpassen', style: bodyStyle(context, size: 13, weight: FontWeight.w700)),
+                ),
+              ],
+            ),
+            HomeTiles(onOpenFood: onOpenFood),
+            const SizedBox(height: 12),
+            _DueCard(state: state),
+          ],
+        );
+    }
+    return const SizedBox.shrink();
   }
 
   @override
   Widget build(BuildContext context) {
-    final AppColors c = AppColors.of(context);
     final AppState state = AppScope.of(context);
-    final Plan? plan = state.plans.isEmpty ? null : state.plans.first;
-    final DateTime? next = state.nextReminder;
+    final String name = firstName(state);
 
     return ListView(
       padding: EdgeInsets.zero,
       children: <Widget>[
         PageHeader(
-          kicker: 'Dein Tag',
-          title: 'Home',
-          trailing: IconButton(
-            tooltip: 'Einstellungen',
-            onPressed: () => _openSettings(context),
-            icon: Icon(Icons.settings_outlined, color: c.text2),
-          ),
+          kicker: longDate(DateTime.now()),
+          title: name.isEmpty ? 'Hi!' : 'Hi, $name',
+          band: true,
+          // Initial instead of the gear. Opens the profile sheet with all settings.
+          trailing: ProfileAvatar(onTap: () => showProfileSheet(context)),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    const SectionLabel('Schnell erstellt'),
-                    const SizedBox(height: 8),
-                    Text('TRAINING FÜR HEUTE', style: heading(context, 30)),
-                    const SizedBox(height: 6),
-                    Text(
-                      state.recentWorkouts().isEmpty
-                          ? 'Der Coach plant nach deinem Profil und deinen Vorlieben.'
-                          : 'Der Coach plant nach deinen ${state.recentWorkouts().length} Trainings der letzten 2 Wochen und deinen Vorlieben.',
-                      style: bodyStyle(context, size: 14, color: c.text2),
-                    ),
-                    const SizedBox(height: 12),
-                    PrimaryButton(
-                      label: 'Jetzt erstellen',
-                      icon: Icons.bolt,
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (BuildContext _) => const ChatScreen(
-                              initialPrompt: 'Erstelle mir ein optimales Training für heute. '
-                                  'Berücksichtige meine Trainings der letzten 2 Wochen, meine Vorlieben und meine Körperdaten.',
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              AppCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    const SectionLabel('Nächste Einheit'),
-                    const SizedBox(height: 10),
-                    if (plan != null) ...<Widget>[
-                      Text(plan.name.toUpperCase(), style: heading(context, 34)),
-                      const SizedBox(height: 8),
-                      Text(
-                        '${plan.items.length} Übungen · ca. ${plan.estimatedMinutes} min',
-                        style: bodyStyle(context, size: 14, color: c.text2),
-                      ),
-                      const SizedBox(height: 14),
-                      PrimaryButton(
-                        label: 'Training starten',
-                        onPressed: plan.items.isEmpty
-                            ? null
-                            : () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute<void>(builder: (BuildContext _) => TimerScreen(plan: plan)),
-                                );
-                              },
-                      ),
-                    ] else ...<Widget>[
-                      Text('NOCH KEIN PLAN', style: heading(context, 34)),
-                      const SizedBox(height: 14),
-                      PrimaryButton(
-                        label: 'Plan erstellen',
-                        onPressed: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(builder: (BuildContext _) => const PlannerScreen()),
-                          );
-                        },
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              _WeekCard(state: state),
-              _DueCard(state: state),
-              _StretchTile(state: state, next: next),
-              const SizedBox(height: 12),
-              SecondaryButton(label: 'Alle Pläne', onPressed: () => onOpenTab(1)),
+              for (final String id in state.homeOrder) ...<Widget>[
+                _block(context, state, id),
+                const SizedBox(height: 16),
+              ],
             ],
           ),
         ),
+        // News are always last and cannot be moved.
+        if (state.features.news) const NewsSection(),
       ],
-    );
-  }
-}
-
-/// Tile on Heute that opens the stretch plan.
-class _StretchTile extends StatelessWidget {
-  final AppState state;
-  final DateTime? next;
-
-  const _StretchTile({required this.state, required this.next});
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColors c = AppColors.of(context);
-    final int total = state.todayPlan.length;
-    final int done = state.todayPlan.where((({DateTime time, Stretch stretch}) e) => state.stretchDone.contains(e.stretch.id)).length;
-    final String status = total > 0 ? 'Heute $done von $total erledigt' : 'Push mit Dehnübungen über den Tag';
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const StretchScreen()));
-      },
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: c.surface,
-          border: Border.all(color: c.border),
-          borderRadius: BorderRadius.circular(kRadius),
-        ),
-        child: Row(
-          children: <Widget>[
-            Container(
-              width: 48,
-              height: 48,
-              color: c.accent,
-              child: Icon(Icons.accessibility_new, color: c.onAccent),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  const SectionLabel('Dehnplan'),
-                  const SizedBox(height: 4),
-                  Text(status, style: bodyStyle(context, size: 15, weight: FontWeight.w700)),
-                  if (next != null)
-                    Text(reminderLabel(true, next), style: bodyStyle(context, size: 13, color: c.text2)),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: c.text2),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -193,7 +92,7 @@ class _DueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColors c = AppColors.of(context);
-    if (state.history.isEmpty) {
+    if (state.history.isEmpty || !state.features.coach) {
       return const SizedBox.shrink();
     }
     final List<String> due = state.dueMuscles.take(2).toList();
@@ -242,67 +141,3 @@ class _DueCard extends StatelessWidget {
   }
 }
 
-/// Weekly goal, streak and the way to the progress page.
-class _WeekCard extends StatelessWidget {
-  final AppState state;
-
-  const _WeekCard({required this.state});
-
-  @override
-  Widget build(BuildContext context) {
-    final AppColors c = AppColors.of(context);
-    final int done = state.workoutsThisWeek;
-    final int goal = state.weekGoal;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: () {
-          Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const ProgressScreen()));
-        },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: c.surface,
-            border: Border.all(color: c.border),
-            borderRadius: BorderRadius.circular(kRadius),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  const Expanded(child: SectionLabel('Wochenziel')),
-                  if (state.streak > 0)
-                    Text('Serie: ${state.streak} ${state.streak == 1 ? 'Woche' : 'Wochen'}',
-                        style: bodyStyle(context, size: 13, weight: FontWeight.w700, color: c.accentText)),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text('$done VON $goal EINHEITEN', style: heading(context, 26)),
-              const SizedBox(height: 10),
-              Row(
-                children: <Widget>[
-                  for (int i = 0; i < goal; i++)
-                    Expanded(
-                      child: Container(
-                        height: 8,
-                        margin: EdgeInsets.only(right: i == goal - 1 ? 0 : 4),
-                        color: i < done ? c.accent : c.border,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: <Widget>[
-                  Expanded(child: Text('Fortschritt und Gewichte ansehen', style: bodyStyle(context, size: 14, color: c.text2))),
-                  Icon(Icons.chevron_right, color: c.text2),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}

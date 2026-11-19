@@ -27,7 +27,7 @@ Future<void> main() async {
     WidgetsBinding.instance.addPostFrameCallback((Duration _) => openStretch());
   }
   // Plan the reminders for the next days every time the app starts.
-  NotificationService.instance.reschedule(state.stretch);
+  state.rescheduleReminders();
 }
 
 class FitnessApp extends StatelessWidget {
@@ -39,10 +39,24 @@ class FitnessApp extends StatelessWidget {
     return MaterialApp(
       title: 'Fitness Companion',
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
+      theme: buildTheme(
+        Brightness.light,
+        colors: AppColors.pick(Brightness.light, lightStyle: state.lightStyle, highContrast: state.highContrast),
+      ),
+      darkTheme: buildTheme(
+        Brightness.dark,
+        colors: AppColors.pick(Brightness.dark, darkStyle: state.darkStyle, highContrast: state.highContrast),
+      ),
       themeMode: state.themeMode,
       navigatorKey: appNavigator,
+      // Text size from the settings. High contrast adds a little on top.
+      builder: (BuildContext context, Widget? child) {
+        final double f = state.textScale * (state.highContrast ? 1.08 : 1.0);
+        return MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(f)),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       home: const AuthGate(),
     );
   }
@@ -57,6 +71,12 @@ class AuthGate extends StatelessWidget {
     final AppState state = AppScope.of(context);
     if (state.user == null) {
       return const LoginScreen();
+    }
+    if (state.firstName.isEmpty) {
+      return const NameScreen();
+    }
+    if (!state.featuresChosen) {
+      return const FeatureChoiceScreen();
     }
     if (!state.body.done) {
       return const OnboardingScreen();

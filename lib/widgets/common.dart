@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme.dart';
 
@@ -47,6 +48,10 @@ class PrimaryButton extends StatelessWidget {
           disabledBackgroundColor: c.surface2,
           disabledForegroundColor: c.text3,
           padding: const EdgeInsets.symmetric(horizontal: 14),
+          // Light themes: dark edge so lime stands out from the light background.
+          side: onPressed == null
+              ? BorderSide(color: c.outline)
+              : (c.accentEdge == null ? BorderSide.none : BorderSide(color: c.accentEdge!, width: 1.5)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
         ),
         child: Row(
@@ -96,7 +101,9 @@ class SecondaryButton extends StatelessWidget {
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
           foregroundColor: c.text,
-          side: BorderSide(color: c.border),
+          // Filled, so the button never has the colour of the page behind it.
+          backgroundColor: c.control,
+          side: BorderSide(color: onPressed == null ? c.border : c.outline, width: c.borderWidth),
           padding: const EdgeInsets.symmetric(horizontal: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
         ),
@@ -167,8 +174,11 @@ class ChipBox extends StatelessWidget {
       height: height,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: selected ? c.accent : Colors.transparent,
-        border: Border.all(color: selected ? c.accent : c.border),
+        color: selected ? c.accent : c.control,
+        border: Border.all(
+          color: selected ? (c.accentEdge ?? c.accent) : (muted ? c.border : c.outline),
+          width: selected && c.accentEdge != null ? 1.5 : c.borderWidth,
+        ),
         borderRadius: BorderRadius.circular(kRadius),
       ),
       child: Center(
@@ -201,6 +211,66 @@ class ChipBox extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 child: Text(text),
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// App logo (lime circle with "GC"). File: assets/branding/logo.png.
+/// Shows nothing if the asset is missing, so a wrong pubspec does not crash the app.
+class AppLogo extends StatelessWidget {
+  final double size;
+
+  const AppLogo({super.key, this.size = 64});
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Logo',
+      image: true,
+      child: Image.asset(
+        'assets/branding/logo.png',
+        width: size,
+        height: size,
+        filterQuality: FilterQuality.medium,
+        errorBuilder: (BuildContext _, Object __, StackTrace? ___) => SizedBox(width: size, height: size),
+      ),
+    );
+  }
+}
+
+/// Error or "do this first" message in the error colour: coloured bar on the
+/// left, light fill, icon and bold text. Used for every error in the app.
+class ErrorNote extends StatelessWidget {
+  final String text;
+  final IconData icon;
+
+  const ErrorNote(this.text, {super.key, this.icon = Icons.error_outline});
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = AppColors.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        decoration: BoxDecoration(
+          color: c.errorBg,
+          border: c.highContrast
+              ? Border.all(color: c.error, width: c.borderWidth)
+              : Border(left: BorderSide(color: c.error, width: 4)),
+          borderRadius: BorderRadius.circular(kRadius),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(icon, size: 20, color: c.error),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(text, style: bodyStyle(context, size: 14, weight: FontWeight.w600, color: c.error)),
             ),
           ],
         ),
@@ -262,42 +332,130 @@ class PageHeader extends StatelessWidget {
   final Widget? trailing;
   final bool showBack;
 
-  const PageHeader({super.key, required this.kicker, required this.title, this.trailing, this.showBack = false});
+  /// Coloured title bar for the main tabs. Off in high contrast.
+  /// The bar reaches up under the status bar, so the tab itself must not add a top safe area.
+  final bool band;
+
+  const PageHeader({
+    super.key,
+    required this.kicker,
+    required this.title,
+    this.trailing,
+    this.showBack = false,
+    this.band = false,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final AppColors c = AppColors.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 12, 12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: <Widget>[
-          if (showBack)
-            IconButton(
-              tooltip: 'Zurück',
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: Icon(Icons.arrow_back, color: c.text),
+    final AppColors base = AppColors.of(context);
+    // Light themes: white head with the title on a lime marker stripe, so the
+    // status bar on top stays light and readable. Dark themes keep the dark bar.
+    final bool marker = band && !base.highContrast && !base.isDark;
+    final bool useBand = band && base.band != null && !base.highContrast && !marker;
+    final double top = band ? MediaQuery.paddingOf(context).top : 0;
+    Widget content(BuildContext ctx) {
+      final AppColors c = AppColors.of(ctx);
+      return Padding(
+        padding: EdgeInsets.fromLTRB(20, 12 + top, 12, useBand ? 20 : 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: <Widget>[
+            if (showBack)
+              IconButton(
+                tooltip: 'Zurück',
+                onPressed: () => Navigator.of(ctx).maybePop(),
+                icon: Icon(Icons.arrow_back, color: c.text),
+              ),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  SectionLabel(kicker),
+                  const SizedBox(height: 8),
+                  // Trailing icon sits in the same row as the title and is centred on
+                  // its capital letters (they sit about 2 px below the middle of the line box).
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: <Widget>[
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: marker ? _MarkerTitle(title.toUpperCase(), lime: c.lime) : Text(title.toUpperCase(), style: heading(ctx, 44)),
+                        ),
+                      ),
+                      if (trailing != null) Transform.translate(offset: const Offset(0, 2), child: trailing!),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                SectionLabel(kicker),
-                const SizedBox(height: 8),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(title.toUpperCase(), style: heading(context, 44)),
-                ),
-              ],
-            ),
-          ),
-          if (trailing != null) trailing!,
-        ],
+          ],
+        ),
+      );
+    }
+
+    if (!useBand) {
+      if (!band) {
+        return content(context);
+      }
+      // Light head: dark status bar icons.
+      return AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.dark.copyWith(statusBarColor: Colors.transparent),
+        child: content(context),
+      );
+    }
+    // Inside the bar every widget reads the bar colours, also the trailing icons.
+    final ThemeData t = Theme.of(context);
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Dark bar: light status bar icons.
+      value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+      child: Container(
+        color: base.band,
+        margin: const EdgeInsets.only(bottom: 8),
+        child: Theme(
+          data: t.copyWith(extensions: <ThemeExtension<dynamic>>[base.forBand()]),
+          child: Builder(builder: content),
+        ),
       ),
     );
   }
+}
+
+/// Tab title on a lime stripe, like a text marker. The stripe covers the lower
+/// part of the capital letters (52 to 92 % of the line box) and reaches 4 px
+/// past both ends. Painted from the real text size, so it fits every font size.
+class _MarkerTitle extends StatelessWidget {
+  final String text;
+  final Color lime;
+
+  const _MarkerTitle(this.text, {required this.lime});
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _MarkerPainter(lime),
+      child: Text(text, style: heading(context, 44)),
+    );
+  }
+}
+
+class _MarkerPainter extends CustomPainter {
+  final Color color;
+
+  const _MarkerPainter(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawRect(
+      Rect.fromLTRB(-4, size.height * 0.52, size.width + 4, size.height * 0.92),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_MarkerPainter old) => old.color != color;
 }
 
 String two(int n) => n < 10 ? '0$n' : '$n';
@@ -344,11 +502,12 @@ InputDecoration fieldDecoration(BuildContext context, String label, {String? hin
     labelStyle: bodyStyle(context, size: 14, color: c.text2),
     hintStyle: bodyStyle(context, size: 15, color: c.text3),
     filled: true,
-    fillColor: c.surface,
-    enabledBorder: border(c.border, 1),
+    fillColor: c.control,
+    errorStyle: bodyStyle(context, size: 13, weight: FontWeight.w600, color: c.error),
+    enabledBorder: border(c.outline, c.borderWidth),
     focusedBorder: border(c.accentText, 2),
-    errorBorder: border(c.text, 1),
-    focusedErrorBorder: border(c.text, 2),
+    errorBorder: border(c.error, 1.5),
+    focusedErrorBorder: border(c.error, 2),
   );
 }
 

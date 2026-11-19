@@ -14,7 +14,12 @@ import '../widgets/wheel_picker.dart';
 class PlannerScreen extends StatefulWidget {
   final Plan? plan;
 
-  const PlannerScreen({super.key, this.plan});
+  /// Set when the plan is made for one calendar day: it is saved for that day
+  /// only (not under "Pläne") and put in the calendar, with [minute] if given.
+  final DateTime? forDay;
+  final int? minute;
+
+  const PlannerScreen({super.key, this.plan, this.forDay, this.minute});
 
   @override
   State<PlannerScreen> createState() => _PlannerScreenState();
@@ -165,11 +170,25 @@ class _PlannerScreenState extends State<PlannerScreen> {
     }
   }
 
+  /// Tells whether this is a template or a plan for one day.
+  String _kicker() {
+    final DateTime? day = widget.forDay ?? (widget.plan?.day == null ? null : AppState.dayFromKey(widget.plan!.day!));
+    if (day != null) {
+      return 'Nur für ${weekdayShort[day.weekday - 1]} ${day.day}.${day.month}.';
+    }
+    return widget.plan == null ? 'Neue Vorlage' : 'Vorlage bearbeiten';
+  }
+
   void _save() {
     final AppState state = AppScope.of(context);
     final String name = _name.text.trim().isEmpty ? 'Mein Plan' : _name.text.trim();
     _normalize();
-    state.savePlan(Plan(id: widget.plan?.id ?? state.newId(), name: name, items: _items));
+    if (widget.plan == null && widget.forDay != null) {
+      state.addDayPlan(widget.forDay!, Plan(id: state.newId(), name: name, items: _items), minute: widget.minute);
+    } else {
+      // Editing keeps the kind: a day plan stays on its day, a template stays a template.
+      state.savePlan(Plan(id: widget.plan?.id ?? state.newId(), name: name, items: _items, day: widget.plan?.day));
+    }
     Navigator.of(context).pop();
   }
 
@@ -827,7 +846,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             PageHeader(
-              kicker: widget.plan == null ? 'Neuer Trainingsplan' : 'Plan bearbeiten',
+              kicker: _kicker(),
               title: 'Trainingsplaner',
               showBack: true,
             ),
@@ -860,13 +879,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                       controller: _name,
                       style: bodyStyle(context, size: 16, weight: FontWeight.w500),
                       cursorColor: c.accentText,
-                      decoration: InputDecoration(
-                        labelText: 'Name des Plans',
-                        labelStyle: bodyStyle(context, size: 13, color: c.text2),
-                        isDense: true,
-                        enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.border)),
-                        focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.accentText, width: 2)),
-                      ),
+                      decoration: fieldDecoration(context, 'Name des Plans').copyWith(isDense: true),
                     ),
                   ),
                   const SizedBox(width: 12),

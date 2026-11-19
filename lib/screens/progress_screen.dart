@@ -6,6 +6,11 @@ import '../state.dart';
 import '../theme.dart';
 import '../training_memory.dart';
 import '../widgets/common.dart';
+import '../widgets/settings_parts.dart';
+import '../services/coach_context.dart';
+import '../services/coach_service.dart';
+import '../services/secrets.dart';
+import 'tracking_screen.dart';
 
 /// Weight history per exercise as a line chart, with the personal record.
 class ProgressScreen extends StatefulWidget {
@@ -17,6 +22,171 @@ class ProgressScreen extends StatefulWidget {
 
 class _ProgressScreenState extends State<ProgressScreen> {
   String? _selected;
+  bool _writing = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((Duration _) {
+      if (mounted && AppScope.of(context).summaryDue && AppScope.of(context).features.coach) {
+        _makeSummary();
+      }
+    });
+  }
+
+  /// Asks the coach for a short weekly summary. Sends only a small summary of the data.
+  Future<void> _makeSummary() async {
+    final AppState state = AppScope.of(context);
+    final String? key = await Secrets.readGeminiKey();
+    if (key == null || key.isEmpty) {
+      setState(() => _error = 'Für die Zusammenfassung braucht der Coach einen Gemini-Schlüssel (Tab Coach).');
+      return;
+    }
+    setState(() {
+      _writing = true;
+      _error = null;
+    });
+    try {
+      final CoachReply r = await state.coach.chat(
+        apiKey: key,
+        model: state.coachModel,
+        system: buildSummarySystem(state),
+        turns: const <ChatTurn>[ChatTurn('user', 'Schreibe meine Wochen-Zusammenfassung.')],
+      );
+      state.saveSummary(r.text);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Zusammenfassung gerade nicht möglich. Später erneut versuchen.');
+      }
+    }
+    if (mounted) {
+      setState(() => _writing = false);
+    }
+  }
+
+  Widget _summary(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(
+          left: BorderSide(color: state.weeklySummary ? c.accent : c.border, width: 4),
+          top: BorderSide(color: c.border),
+          right: BorderSide(color: c.border),
+          bottom: BorderSide(color: c.border),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          SwitchRow(
+            title: 'Wöchentliche Zusammenfassung',
+            note: 'Sonntags vom Coach: Körperdaten, Gewichte, Muskelgruppen',
+            value: state.weeklySummary,
+            onChanged: state.features.coach ? state.setWeeklySummary : null,
+          ),
+          if (state.weeklySummary) ...<Widget>[
+            const SizedBox(height: 6),
+            if (_writing)
+              Text('Coach schreibt …', style: bodyStyle(context, size: 14, color: c.text2))
+            else if (state.summaryText.isNotEmpty)
+              Text(state.summaryText, style: bodyStyle(context, size: 14)),
+            if (_error != null) ErrorNote(_error!),
+            const SizedBox(height: 8),
+            SecondaryButton(label: 'Jetzt erstellen', height: 44, fontSize: 16, onPressed: _writing ? null : _makeSummary),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _bodyCard(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<BodyEntry> log = state.bodyLog;
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (BuildContext _) => const TrackingScreen())),
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Row(
+              children: <Widget>[
+                const Expanded(child: SectionLabel('Körpergewicht · 6 Monate')),
+                Text(log.isEmpty ? '–' : formatKg(log.last.weightKg), style: heading(context, 24)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (log.length < 2)
+              Text('Trag dein Gewicht ein paar Wochen ein, dann siehst du hier den Verlauf.',
+                  style: bodyStyle(context, size: 14, color: c.text2))
+            else
+              SizedBox(
+                height: 150,
+                child: CustomPaint(
+                  painter: LineChart(
+                    values: log.map((BodyEntry e) => e.weightKg).toList(),
+                    line: c.accentText,
+                    grid: c.border,
+                    label: c.text2,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// How often each muscle group was trained in the last 4 weeks.
+  Widget _muscles(BuildContext context, AppState state) {
+    final AppColors c = AppColors.of(context);
+    final List<WorkoutLog> four = state.recentWorkouts(days: 28);
+    final Map<String, int> count = <String, int>{for (final String g in kMuscleGroups) g: 0};
+    for (final WorkoutLog w in four) {
+      final Set<String> groups = <String>{};
+      for (final PlanItem it in w.items) {
+        groups.addAll(groupsOf(exerciseById(it.exerciseId)));
+      }
+      for (final String g in groups) {
+        if (count.containsKey(g)) {
+          count[g] = count[g]! + 1;
+        }
+      }
+    }
+    final int max = count.values.fold(1, (int a, int b) => a > b ? a : b);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const SectionLabel('Muskelgruppen · 4 Wochen'),
+          const SizedBox(height: 10),
+          for (final String g in kMuscleGroups)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(
+                children: <Widget>[
+                  SizedBox(width: 78, child: Text(g, style: bodyStyle(context, size: 13, color: c.text2))),
+                  Expanded(
+                    child: Container(
+                      height: 8,
+                      color: c.surface2,
+                      alignment: Alignment.centerLeft,
+                      child: FractionallySizedBox(
+                        widthFactor: count[g]! / max,
+                        child: Container(color: c.isDark ? c.accent : c.text),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 34, child: Text('${count[g]}×', textAlign: TextAlign.right, style: bodyStyle(context, size: 12, color: c.text3))),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +201,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
         child: ListView(
           padding: EdgeInsets.zero,
           children: <Widget>[
-            const PageHeader(kicker: 'Deine Entwicklung', title: 'Fortschritt', showBack: true),
+            const PageHeader(kicker: 'Bewegung und Körper', title: 'Statistik', showBack: true),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
               child: Column(
@@ -45,6 +215,14 @@ class _ProgressScreenState extends State<ProgressScreen> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 12),
+                  _summary(context, state),
+                  if (state.features.tracking) ...<Widget>[
+                    const SizedBox(height: 12),
+                    _bodyCard(context, state),
+                  ],
+                  const SizedBox(height: 12),
+                  _muscles(context, state),
                   const SizedBox(height: 20),
                   if (id == null)
                     Text(
@@ -106,7 +284,7 @@ class _ProgressScreenState extends State<ProgressScreen> {
           SizedBox(
             height: 180,
             child: CustomPaint(
-              painter: _LineChart(
+              painter: LineChart(
                 values: list.map((WeightEntry e) => e.kg).toList(),
                 line: c.accentText,
                 grid: c.border,
@@ -133,13 +311,13 @@ class _ProgressScreenState extends State<ProgressScreen> {
 }
 
 /// Small line chart without extra packages. Oldest value on the left.
-class _LineChart extends CustomPainter {
+class LineChart extends CustomPainter {
   final List<double> values;
   final Color line;
   final Color grid;
   final Color label;
 
-  _LineChart({required this.values, required this.line, required this.grid, required this.label});
+  LineChart({required this.values, required this.line, required this.grid, required this.label});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -190,5 +368,5 @@ class _LineChart extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_LineChart old) => old.values != values || old.line != line;
+  bool shouldRepaint(LineChart old) => old.values != values || old.line != line;
 }

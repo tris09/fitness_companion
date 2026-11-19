@@ -98,8 +98,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _toBottom();
     try {
-      // Only the last messages are sent. The long-term memory is the workout list in the system text.
-      List<ChatMessage> recent = state.chat.length > 12 ? state.chat.sublist(state.chat.length - 12) : state.chat;
+      // Only the last 8 messages are sent. The long-term memory is a short summary in the system text.
+      List<ChatMessage> recent = state.chat.length > 8 ? state.chat.sublist(state.chat.length - 8) : state.chat;
       while (recent.isNotEmpty && recent.first.role != 'user') {
         recent = recent.sublist(1);
       }
@@ -119,7 +119,12 @@ class _ChatScreenState extends State<ChatScreen> {
       final CoachReply reply = await state.coach.chat(
         apiKey: key,
         model: state.coachModel,
-        system: buildCoachSystem(state, offers: offers),
+        system: buildCoachSystem(
+          state,
+          offers: offers,
+          // Topic from the last user messages, so short follow-ups keep the right context.
+          topic: guessTopic(recent.where((ChatMessage m) => m.role == 'user').map((ChatMessage m) => m.text).join(' ')),
+        ),
         turns: recent.map((ChatMessage m) => ChatTurn(m.role, m.text)).toList(),
       );
       final String? used = state.coach.lastWorkingModel;
@@ -161,6 +166,28 @@ class _ChatScreenState extends State<ChatScreen> {
     _toBottom();
   }
 
+  static String _saveLabel(CoachProgram p) {
+    if (p.templateDays == 0) {
+      return 'In den Kalender eintragen';
+    }
+    return p.datedDays == 0 ? 'In meine Pläne übernehmen' : 'Übernehmen';
+  }
+
+  static String _savedLabel(CoachProgram p) {
+    if (p.templateDays == 0) {
+      return 'Im Kalender eingetragen';
+    }
+    return p.datedDays == 0 ? 'In deinen Plänen' : 'Übernommen';
+  }
+
+  static String _targetText(CoachProgram p) {
+    final List<String> parts = <String>[
+      if (p.datedDays > 0) '${p.datedDays} ${p.datedDays == 1 ? 'Tag kommt' : 'Tage kommen'} nur in den Kalender',
+      if (p.templateDays > 0) '${p.templateDays} ${p.templateDays == 1 ? 'Plan wird Vorlage' : 'Pläne werden Vorlagen'} unter Pläne',
+    ];
+    return '${parts.join(', ')}.';
+  }
+
   Widget _programCard(AppState state, ChatMessage m) {
     final AppColors c = AppColors.of(context);
     CoachProgram program;
@@ -188,7 +215,10 @@ class _ChatScreenState extends State<ChatScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Text(d.name, style: bodyStyle(context, size: 14, weight: FontWeight.w700)),
+                  Text(
+                    d.date == null ? d.name : '${d.name} · ${weekdayShort[d.date!.weekday - 1]} ${d.date!.day}.${d.date!.month}.',
+                    style: bodyStyle(context, size: 14, weight: FontWeight.w700),
+                  ),
                   for (final PlanItem i in d.items)
                     Text(
                       '${exerciseById(i.exerciseId).name} · ${i.sets}×${i.reps}${exerciseById(i.exerciseId).timed ? ' s' : ''}${i.supersetWithNext ? ' · Superset' : ''}',
@@ -198,8 +228,13 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           const SizedBox(height: 4),
+          // Dated days go to the calendar only, days without a date become templates.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(_targetText(program), style: bodyStyle(context, size: 12, color: c.text3)),
+          ),
           PrimaryButton(
-            label: m.saved ? 'In deinen Plänen' : 'In meine Pläne übernehmen',
+            label: m.saved ? _savedLabel(program) : _saveLabel(program),
             height: 46,
             fontSize: 17,
             onPressed: m.saved
@@ -333,7 +368,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     show: _error != null,
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 10),
-                      child: Text(_error ?? '', style: bodyStyle(context, size: 14, weight: FontWeight.w600)),
+                      child: ErrorNote(_error ?? ''),
                     ),
                   ),
                   if (state.chat.isNotEmpty)

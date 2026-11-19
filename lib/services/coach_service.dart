@@ -34,8 +34,40 @@ class CoachDay {
   final String name;
   final List<PlanItem> items;
 
-  CoachDay({required this.name, required this.items});
+  /// Calendar day when the user asked for a plan on a specific date.
+  /// Null = template for "Pläne".
+  final DateTime? date;
+
+  CoachDay({required this.name, required this.items, this.date});
 }
+
+/// Reads 'YYYY-MM-DD'. Null when empty, invalid or outside the planning window.
+DateTime? parseCoachDate(dynamic v) {
+  final String t = '${v ?? ''}'.trim();
+  final RegExpMatch? m = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(t);
+  if (m == null) {
+    return null;
+  }
+  final int y = int.parse(m.group(1)!);
+  final int mo = int.parse(m.group(2)!);
+  final int d = int.parse(m.group(3)!);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) {
+    return null;
+  }
+  final DateTime date = DateTime(y, mo, d);
+  if (date.month != mo) {
+    return null;
+  }
+  // Only today up to the end of the planning window.
+  final DateTime n = DateTime.now();
+  final DateTime today = DateTime(n.year, n.month, n.day);
+  if (date.isBefore(today) || date.isAfter(DataLimits.lastDay)) {
+    return null;
+  }
+  return date;
+}
+
+String _isoDate(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
 /// A training programme made by the coach. One day becomes one plan.
 class CoachProgram {
@@ -46,6 +78,10 @@ class CoachProgram {
   final String json;
 
   CoachProgram({required this.name, required this.days, required this.json});
+
+  /// Days that go to the calendar (with a date) and to "Pläne" (without).
+  int get datedDays => days.where((CoachDay d) => d.date != null).length;
+  int get templateDays => days.length - datedDays;
 
   /// 0 = no time limit, otherwise 10 to 300 s.
   static int _limit(dynamic v) {
@@ -103,7 +139,7 @@ class CoachProgram {
       }
       items.last.supersetWithNext = false;
       final String dayName = '${d['name'] ?? ''}'.trim();
-      days.add(CoachDay(name: dayName.isEmpty ? 'Tag ${days.length + 1}' : dayName, items: items));
+      days.add(CoachDay(name: dayName.isEmpty ? 'Tag ${days.length + 1}' : dayName, items: items, date: parseCoachDate(d['date'])));
     }
     if (days.isEmpty) {
       throw const FormatException('Die Antwort enthält keine nutzbaren Übungen');
@@ -114,6 +150,7 @@ class CoachProgram {
       'days': days
           .map((CoachDay d) => <String, dynamic>{
                 'name': d.name,
+                if (d.date != null) 'date': _isoDate(d.date!),
                 'items': d.items.map((PlanItem e) => e.toJson()).toList(),
               })
           .toList(),
@@ -288,7 +325,8 @@ class GeminiCoachService implements CoachService {
   static Map<String, dynamic> _planFunction() {
     return <String, dynamic>{
       'name': 'create_training_plan',
-      'description': 'Erstellt einen Trainingsplan in der App. Ein Eintrag in days wird ein Plan.',
+      'description': 'Erstellt Trainingspläne in der App. Ein Eintrag in days wird ein Plan. '
+          'Mit date landet er nur im Kalender an diesem Tag, ohne date als Vorlage unter Pläne.',
       'parameters': <String, dynamic>{
         'type': 'OBJECT',
         'properties': <String, dynamic>{
@@ -299,6 +337,10 @@ class GeminiCoachService implements CoachService {
               'type': 'OBJECT',
               'properties': <String, dynamic>{
                 'name': <String, dynamic>{'type': 'STRING', 'description': 'Name des Trainingstags'},
+                'date': <String, dynamic>{
+                  'type': 'STRING',
+                  'description': 'Datum JJJJ-MM-TT, nur wenn der Nutzer Tage oder Daten nennt. Weglassen für Vorlagen.',
+                },
                 'items': <String, dynamic>{
                   'type': 'ARRAY',
                   'items': <String, dynamic>{

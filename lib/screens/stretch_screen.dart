@@ -115,8 +115,11 @@ class _StretchScreenState extends State<StretchScreen> {
                   height: 44,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
-                    color: s.weekdays.contains(d) ? c.accent : Colors.transparent,
-                    border: Border.all(color: s.weekdays.contains(d) ? c.accent : c.border),
+                    color: s.weekdays.contains(d) ? c.accent : c.control,
+                    border: Border.all(
+                      color: s.weekdays.contains(d) ? (c.accentEdge ?? c.accent) : c.outline,
+                      width: s.weekdays.contains(d) && c.accentEdge != null ? 1.5 : c.borderWidth,
+                    ),
                     borderRadius: BorderRadius.circular(kRadius),
                   ),
                   child: Text(

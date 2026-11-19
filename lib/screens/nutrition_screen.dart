@@ -192,7 +192,7 @@ class _NutritionScreenState extends State<NutritionScreen> {
     return ListView(
       padding: EdgeInsets.zero,
       children: <Widget>[
-        const PageHeader(kicker: 'Passend zu deinem Training', title: 'Essen'),
+        const PageHeader(kicker: 'Passend zu deinem Training', title: 'Essen', band: true),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
           child: Column(
