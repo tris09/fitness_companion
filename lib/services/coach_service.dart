@@ -174,7 +174,11 @@ class CoachProgram {
 class CoachException implements Exception {
   final String message;
 
-  CoachException(this.message);
+  /// True when there was no connection (no internet, timeout). The chat then
+  /// sends the message again by itself.
+  final bool offline;
+
+  CoachException(this.message, {this.offline = false});
 
   @override
   String toString() => message;
@@ -639,11 +643,11 @@ class GeminiCoachService implements CoachService {
     } on CoachException {
       rethrow;
     } on TimeoutException {
-      throw CoachException('Der Coach hat zu lange gebraucht. Prüfe deine Internetverbindung.');
+      throw CoachException('Der Coach hat zu lange gebraucht. Prüfe deine Internetverbindung.', offline: true);
     } on FormatException catch (e) {
       throw CoachException('Die Antwort war nicht lesbar: ${e.message}');
     } catch (_) {
-      throw CoachException('Keine Verbindung zum Coach. Prüfe deine Internetverbindung.');
+      throw CoachException('Keine Verbindung zum Coach. Prüfe deine Internetverbindung.', offline: true);
     }
   }
 
@@ -886,11 +890,11 @@ class GeminiCoachService implements CoachService {
     } on CoachException {
       rethrow;
     } on TimeoutException {
-      throw CoachException('Der Coach hat zu lange gebraucht. Prüfe deine Internetverbindung.');
+      throw CoachException('Der Coach hat zu lange gebraucht. Prüfe deine Internetverbindung.', offline: true);
     } on FormatException catch (e) {
       throw CoachException('Die Antwort war nicht lesbar: ${e.message}');
     } catch (_) {
-      throw CoachException('Keine Verbindung zum Coach. Prüfe deine Internetverbindung.');
+      throw CoachException('Keine Verbindung zum Coach. Prüfe deine Internetverbindung.', offline: true);
     }
   }
 }

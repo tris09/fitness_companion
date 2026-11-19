@@ -11,6 +11,7 @@ import '../state.dart';
 import '../theme.dart';
 import '../training_memory.dart';
 import '../widgets/common.dart';
+import '../widgets/wheel_picker.dart';
 import 'success_screen.dart';
 
 enum _Kind { warmup, work, rest, cooldown }
@@ -90,6 +91,31 @@ class _TimerScreenState extends State<TimerScreen> {
 
   /// Start of the workout, for the real duration in the statistics.
   final DateTime _startedAt = DateTime.now();
+
+  /// Weights entered during the workout (kg per exercise id). Handed to the
+  /// success screen, which saves them together with the feeling.
+  final Map<String, double> _kg = <String, double>{};
+
+  /// Opens the weight wheel. A running countdown is paused first and stays
+  /// paused afterwards, so no time is lost while typing; "Weiter" continues.
+  Future<void> _enterWeight(Exercise ex) async {
+    final _Step step = _steps[_index];
+    if (step.seconds > 0 && !_paused) {
+      _togglePause();
+    }
+    final AppState state = AppScope.of(context);
+    final double start = _kg[ex.id] ?? state.suggestedWeight(ex.id) ?? 20;
+    final int? v = await showWheelPicker(
+      context,
+      title: ex.name,
+      values: numberRange(0, 600),
+      initial: (start * 2).round().clamp(0, 600),
+      label: (int x) => formatKg(x / 2),
+    );
+    if (v != null && mounted) {
+      setState(() => _kg[ex.id] = v / 2);
+    }
+  }
 
   @override
   void initState() {
@@ -244,7 +270,7 @@ class _TimerScreenState extends State<TimerScreen> {
       _ticker?.cancel();
       AppScope.of(context).logWorkout(widget.plan, minutes: DateTime.now().difference(_startedAt).inMinutes);
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(builder: (BuildContext _) => SuccessScreen(plan: widget.plan)),
+        MaterialPageRoute<void>(builder: (BuildContext _) => SuccessScreen(plan: widget.plan, entered: Map<String, double>.of(_kg))),
       );
       return;
     }
@@ -378,7 +404,9 @@ class _TimerScreenState extends State<TimerScreen> {
     final String title = step.isStretch ? step.stretch!.name : step.exercise!.name;
     final String sub = step.isStretch ? step.stretch!.group : step.exercise!.muscleLabel;
     final Exercise? weighted = step.isStretch ? null : step.exercise;
-    final double? kg = (weighted != null && usesWeight(weighted)) ? state.suggestedWeight(weighted.id) : null;
+    final bool hasWeight = weighted != null && usesWeight(weighted);
+    final double? entered = hasWeight ? _kg[weighted!.id] : null;
+    final double? kg = hasWeight ? (entered ?? state.suggestedWeight(weighted!.id)) : null;
 
     Widget primary;
     if (step.limit) {
@@ -428,11 +456,34 @@ class _TimerScreenState extends State<TimerScreen> {
                           Text(title.toUpperCase(), style: heading(context, 46)),
                           const SizedBox(height: 4),
                           Text(sub, style: bodyStyle(context, size: 16, weight: FontWeight.w600, color: c.text2)),
-                          if (kg != null) ...<Widget>[
-                            const SizedBox(height: 6),
-                            Text(
-                              'GEWICHT ${formatKg(kg).toUpperCase()}',
-                              style: heading(context, 30, color: c.text),
+                          if (hasWeight) ...<Widget>[
+                            const SizedBox(height: 8),
+                            Row(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        entered != null ? 'Eingetragen' : (kg != null ? 'Vorschlag' : 'Gewicht'),
+                                        style: bodyStyle(context, size: 13, color: c.text3),
+                                      ),
+                                      Text(
+                                        kg == null ? '–' : formatKg(kg).toUpperCase(),
+                                        style: heading(context, 30, color: entered != null ? c.accentText : c.text),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                // Big target: also usable with sweaty hands between sets.
+                                SecondaryButton(
+                                  label: entered != null ? 'Ändern' : 'Gewicht',
+                                  expand: false,
+                                  height: 56,
+                                  fontSize: 20,
+                                  onPressed: () => _enterWeight(weighted!),
+                                ),
+                              ],
                             ),
                           ],
                         ],

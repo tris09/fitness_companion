@@ -12,7 +12,10 @@ import '../widgets/wheel_picker.dart';
 class SuccessScreen extends StatefulWidget {
   final Plan plan;
 
-  const SuccessScreen({super.key, required this.plan});
+  /// Weights already entered in the timer (kg per exercise id).
+  final Map<String, double> entered;
+
+  const SuccessScreen({super.key, required this.plan, this.entered = const <String, double>{}});
 
   @override
   State<SuccessScreen> createState() => _SuccessScreenState();
@@ -22,6 +25,13 @@ class _SuccessScreenState extends State<SuccessScreen> {
   /// Entered weights in kg per exercise id. Only these are saved.
   final Map<String, double> _kg = <String, double>{};
   final Map<String, String> _feel = <String, String>{};
+
+  @override
+  void initState() {
+    super.initState();
+    // Weights from the timer are taken over; here only the feeling is added.
+    _kg.addAll(widget.entered);
+  }
 
   List<PlanItem> _weighted() {
     final Set<String> seen = <String>{};

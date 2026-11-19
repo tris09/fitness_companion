@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models.dart';
 import '../services/coach_context.dart';
@@ -70,6 +72,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _retry?.cancel();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -83,12 +86,20 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  /// Automatic resend without internet: every 5 s, after 2 minutes every 30 s,
+  /// until it works or the user stops it.
+  Timer? _retry;
+  DateTime? _offlineSince;
+  int _retryIn = 0;
+
+  /// Text of a message that could not be sent (offer "Erneut senden").
+  String? _failed;
+
   Future<void> _send(String raw) async {
     final String text = raw.trim();
     if (text.isEmpty || _busy) {
       return;
     }
-    final AppState state = AppScope.of(context);
     final String? key = await Secrets.readGeminiKey();
     if (!mounted) {
       return;
@@ -98,10 +109,68 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     _input.clear();
-    state.addChat(ChatMessage(role: 'user', text: text));
+    AppScope.of(context).addChat(ChatMessage(role: 'user', text: text));
+    _failed = null;
+    _offlineSince = null;
+    _ask(text, key);
+  }
+
+  void _stopRetry() {
+    _retry?.cancel();
+    _retry = null;
+    setState(() {
+      _busy = false;
+      _offlineSince = null;
+      _error = 'Nicht gesendet. Deine Nachricht steht oben, du kannst sie erneut senden.';
+    });
+  }
+
+  void _resend() {
+    final String? text = _failed;
+    if (text == null || _busy) {
+      return;
+    }
+    Secrets.readGeminiKey().then((String? key) {
+      if (key != null && mounted) {
+        _offlineSince = null;
+        _ask(text, key);
+      }
+    });
+  }
+
+  /// Waits, counting down once per second, then asks again.
+  void _scheduleRetry(String text, String key) {
+    final DateTime now = DateTime.now();
+    _offlineSince ??= now;
+    final bool longOffline = now.difference(_offlineSince!) >= const Duration(minutes: 2);
+    _retryIn = longOffline ? 30 : 5;
+    _retry?.cancel();
+    setState(() {
+      _status = 'Keine Internetverbindung. Neuer Versuch in $_retryIn s …';
+    });
+    _retry = Timer.periodic(const Duration(seconds: 1), (Timer t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      _retryIn--;
+      if (_retryIn <= 0) {
+        t.cancel();
+        _retry = null;
+        _ask(text, key);
+      } else {
+        setState(() => _status = 'Keine Internetverbindung. Neuer Versuch in $_retryIn s …');
+      }
+    });
+  }
+
+  /// Sends the chat (the user message is already in it) and adds the answer.
+  Future<void> _ask(String text, String key) async {
+    final AppState state = AppScope.of(context);
     setState(() {
       _busy = true;
       _error = null;
+      _status = _offlineSince == null ? 'Coach schreibt …' : 'Sende erneut …';
     });
     _toBottom();
     try {
@@ -153,20 +222,31 @@ class _ChatScreenState extends State<ChatScreen> {
         settingsJson: reply.settingsJson,
         sources: reply.listJson.isEmpty ? <String>[] : (offers?.sources ?? <String>[]),
       ));
+      _offlineSince = null;
+      _failed = null;
       if (mounted) {
         setState(() => _busy = false);
       }
     } on CoachException catch (e) {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-          _error = e.message;
-        });
+      if (!mounted) {
+        return;
       }
+      if (e.offline) {
+        // Stays busy: the input waits until the message went through or the user stops.
+        _failed = text;
+        _scheduleRetry(text, key);
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _failed = text;
+        _error = e.message;
+      });
     } catch (_) {
       if (mounted) {
         setState(() {
           _busy = false;
+          _failed = text;
           _error = 'Etwas ist schiefgelaufen. Versuch es noch einmal.';
         });
       }
@@ -309,6 +389,13 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Nachricht kopiert.'), duration: Duration(seconds: 2)));
+    }
+  }
+
   /// Chat bubbles: own messages dark on the right (inverted colours), coach on the left.
   Widget _bubble(AppState state, ChatMessage m) {
     final AppColors c = AppColors.of(context);
@@ -324,7 +411,34 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Text(m.text, style: bodyStyle(context, size: 15, color: mine ? c.bg : c.text)),
+          // Long-press selects text (with the system copy menu).
+          SelectableText(
+            m.text,
+            style: bodyStyle(context, size: 15, color: mine ? c.bg : c.text),
+            cursorColor: c.accentText,
+          ),
+          if (!mine)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Semantics(
+                button: true,
+                label: 'Nachricht kopieren',
+                child: InkWell(
+                  onTap: () => _copy(m.text),
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6, left: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Icon(Icons.copy, size: 16, color: c.text3),
+                        const SizedBox(width: 4),
+                        Text('Kopieren', style: bodyStyle(context, size: 12, weight: FontWeight.w600, color: c.text3)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (m.programJson.isNotEmpty) _programCard(state, m),
           if (m.listJson.isNotEmpty) _listCard(state, m),
           if (m.settingsJson.isNotEmpty) _settingsCard(state, m),
@@ -486,12 +600,36 @@ class _ChatScreenState extends State<ChatScreen> {
                 show: _busy,
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 10, left: 40),
-                  child: Text(_status, style: bodyStyle(context, size: 14, color: c.text2)),
+                  child: Row(
+                    children: <Widget>[
+                      if (_retry != null) ...<Widget>[Icon(Icons.wifi_off, size: 18, color: c.error), const SizedBox(width: 6)],
+                      Expanded(
+                        child: Text(_status, style: bodyStyle(context, size: 14, color: _retry != null ? c.error : c.text2)),
+                      ),
+                      if (_retry != null)
+                        TextButton(
+                          onPressed: _stopRetry,
+                          child: Text('Stopp', style: bodyStyle(context, size: 14, weight: FontWeight.w700)),
+                        ),
+                    ],
+                  ),
                 ),
               ),
               Reveal(
                 show: _error != null,
-                child: Padding(padding: const EdgeInsets.only(bottom: 10), child: ErrorNote(_error ?? '')),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      ErrorNote(_error ?? ''),
+                      if (_failed != null && !_busy) ...<Widget>[
+                        const SizedBox(height: 8),
+                        SecondaryButton(label: 'Erneut senden', height: 44, fontSize: 16, onPressed: _resend),
+                      ],
+                    ],
+                  ),
+                ),
               ),
               Text(
                 'Die Antworten stammen von einer AI und ersetzen keine ärztliche oder sportfachliche Beratung.',
