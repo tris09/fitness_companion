@@ -364,7 +364,7 @@ class _TimerScreenState extends State<TimerScreen> {
   @override
   Widget build(BuildContext context) {
     return Theme(
-      data: buildTheme(Brightness.dark, colors: kTrainingColors),
+      data: buildTheme(Brightness.dark, colors: kTrainingColors.withAccent(AppScope.of(context).accent)),
       child: MediaQuery(
         // Keep the user's text size, but never smaller than normal here.
         data: MediaQuery.of(context).copyWith(

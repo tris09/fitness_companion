@@ -386,6 +386,8 @@ class ThemeChoiceScreen extends StatelessWidget {
                     InkWell(onTap: () => state.setTextScale(1.0), child: ChipBox(text: 'A', selected: state.textScale == 1, height: 44)),
                     InkWell(onTap: () => state.setTextScale(1.15), child: ChipBox(text: 'A+', selected: state.textScale > 1, height: 44)),
                   ]),
+                  const SizedBox(height: 18),
+                  const AccentPicker(),
                   const SizedBox(height: 22),
                   PrimaryButton(label: 'Weiter', height: 60, fontSize: 21, onPressed: state.markThemeChosen),
                 ],

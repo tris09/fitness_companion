@@ -338,6 +338,95 @@ class AppColors extends ThemeExtension<AppColors> {
   }
 
   /// Same set with the text colours of the title bar. Used inside the bar.
+  /// Default accent (lime). A custom accent replaces every use of it.
+  static const Color defaultAccent = Color(0xFFC6FF00);
+
+  /// Readable text colour on the accent fill: ink on light accents, white on dark ones.
+  Color get onLime => lime.computeLuminance() > 0.35 ? const Color(0xFF0D0E0F) : const Color(0xFFFFFFFF);
+
+  static double _contrast(Color a, Color b) {
+    final double la = a.computeLuminance();
+    final double lb = b.computeLuminance();
+    return (la > lb ? la + 0.05 : lb + 0.05) / (la > lb ? lb + 0.05 : la + 0.05);
+  }
+
+  /// Same colours with another accent. Every place that used lime gets [a].
+  /// Where the accent is used as text or line on the page it must stay readable:
+  /// below 3:1 against the background the normal text colour is used instead.
+  AppColors withAccent(Color a) {
+    if (a.toARGB32() == defaultAccent.toARGB32()) {
+      return this;
+    }
+    Color sw(Color c) => c.toARGB32() == defaultAccent.toARGB32() ? a : c;
+    Color? sw2(Color? c) => c == null ? null : sw(c);
+    final AppColors raw = AppColors(
+      bg: bg,
+      surface: sw(surface),
+      surface2: sw(surface2),
+      border: sw(border),
+      text: sw(text),
+      text2: sw(text2),
+      text3: sw(text3),
+      accent: sw(accent),
+      onAccent: sw(onAccent),
+      accentText: sw(accentText),
+      figBase: sw(figBase),
+      figOn: sw(figOn),
+      lime: sw(lime),
+      strike: sw(strike),
+      band: sw2(band),
+      bandText: sw(bandText),
+      bandText2: sw(bandText2),
+      navBar: sw(navBar),
+      navActiveBg: sw(navActiveBg),
+      navActiveFg: sw(navActiveFg),
+      navLine: sw(navLine),
+      newsBg: sw(newsBg),
+      error: sw(error),
+      errorBg: sw(errorBg),
+      controlBorder: sw2(controlBorder),
+      controlFill: sw2(controlFill),
+      accentEdge: sw2(accentEdge),
+      navFullLine: navFullLine,
+      borderWidth: borderWidth,
+      highContrast: highContrast,
+    );
+    final bool readable = _contrast(a, bg) >= 3;
+    final Color on = a.computeLuminance() > 0.35 ? const Color(0xFF0D0E0F) : const Color(0xFFFFFFFF);
+    return AppColors(
+      bg: raw.bg,
+      surface: raw.surface,
+      surface2: raw.surface2,
+      border: raw.border,
+      text: raw.text,
+      text2: raw.text2,
+      text3: raw.text3,
+      accent: raw.accent,
+      onAccent: raw.accent == a ? on : raw.onAccent,
+      accentText: raw.accentText == a && !readable ? raw.text : raw.accentText,
+      figBase: raw.figBase,
+      figOn: raw.figOn == a && !readable ? raw.text : raw.figOn,
+      lime: raw.lime,
+      strike: raw.strike == a && !readable ? raw.text : raw.strike,
+      band: raw.band,
+      bandText: raw.bandText,
+      bandText2: raw.bandText2,
+      navBar: raw.navBar,
+      navActiveBg: raw.navActiveBg,
+      navActiveFg: raw.navActiveFg == a && _contrast(a, raw.navBar) < 3 ? raw.text : raw.navActiveFg,
+      navLine: raw.navLine,
+      navFullLine: raw.navFullLine,
+      newsBg: raw.newsBg,
+      error: raw.error,
+      errorBg: raw.errorBg,
+      controlBorder: raw.controlBorder,
+      controlFill: raw.controlFill,
+      accentEdge: raw.accentEdge,
+      borderWidth: raw.borderWidth,
+      highContrast: raw.highContrast,
+    );
+  }
+
   AppColors forBand() {
     return AppColors(
       bg: band ?? bg,

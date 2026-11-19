@@ -178,7 +178,7 @@ class _DayBox extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColors c = AppColors.of(context);
-    const Color ink = Color(0xFF0D0E0F);
+    final Color ink = AppColors.of(context).onLime;
     return Semantics(
       button: true,
       selected: selected,
@@ -314,7 +314,7 @@ class DayCard extends StatelessWidget {
       );
     }
 
-    const Color ink = Color(0xFF0D0E0F);
+    final Color ink = AppColors.of(context).onLime;
     final Plan main = state.planById(units.first.planId)!;
     final List<String> names = main.items.take(3).map((PlanItem it) => exerciseById(it.exerciseId).name).toList();
     final String meta = <String>[
@@ -323,6 +323,7 @@ class DayCard extends StatelessWidget {
       if (units.first.hasTime) units.first.timeText,
       // Day plans exist only on this day; templates are also under "Pläne".
       if (!main.isTemplate) 'nur dieser Tag',
+      if (state.isDone(day, main.id)) '✓ absolviert',
     ].join(' · ');
     final bool contrastLight = c.highContrast && !c.isDark;
     return Container(
@@ -374,11 +375,12 @@ class DayCard extends StatelessWidget {
                                 MaterialPageRoute<void>(builder: (BuildContext _) => TimerScreen(plan: main)),
                               ),
                       style: FilledButton.styleFrom(
+                        // Inverse of the accent fill: dark button on light accents, light on dark ones.
                         backgroundColor: ink,
-                        foregroundColor: Colors.white,
+                        foregroundColor: c.lime,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
                       ),
-                      child: Text('STARTEN', style: heading(context, 18, color: Colors.white)),
+                      child: Text('STARTEN', style: heading(context, 18, color: c.lime)),
                     ),
                   ),
                 ),
@@ -392,7 +394,7 @@ class DayCard extends StatelessWidget {
                       ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: ink,
-                        side: const BorderSide(color: ink, width: 1.5),
+                        side: BorderSide(color: ink, width: 1.5),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(kRadius)),
                       ),
                       child: Text('BEARBEITEN', style: heading(context, 18, color: ink)),
@@ -422,7 +424,7 @@ class _UnitMenu extends StatelessWidget {
       tooltip: 'Einheiten',
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 220),
-      icon: const Icon(Icons.more_horiz, color: Color(0xFF0D0E0F)),
+      icon: Icon(Icons.more_horiz, color: AppColors.of(context).onLime),
       onSelected: (String v) {
         if (v == '+') {
           showDaySheet(context, day);

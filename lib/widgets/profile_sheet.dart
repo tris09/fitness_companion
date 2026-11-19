@@ -18,7 +18,7 @@ class ProfileAvatar extends StatelessWidget {
     final AppColors c = AppColors.of(context);
     final AppState state = AppScope.of(context);
     final String name = state.firstName.trim();
-    const Color ink = Color(0xFF0D0E0F);
+    final Color ink = AppColors.of(context).onLime;
     final Widget inner = name.isEmpty
         ? Icon(Icons.person_outline, size: size * 0.55, color: ink)
         : Text(name.characters.first.toUpperCase(), style: heading(context, size * 0.5, color: ink));

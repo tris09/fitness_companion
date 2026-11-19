@@ -704,6 +704,52 @@ String formatKg(double kg) {
 }
 
 /// One planned unit on a calendar day. A day can hold several.
+/// A template that repeats on fixed weekdays (e.g. "Oberkörper" every Mo and Do).
+/// The calendar shows it on those days from [from] on; single days can be skipped.
+class WeekRule {
+  final String id;
+  final String planId;
+
+  /// 1 = Monday … 7 = Sunday.
+  List<int> weekdays;
+
+  /// First day the rule applies ('yyyy-m-d').
+  final String from;
+
+  /// Days on which this rule was removed from the calendar.
+  Set<String> skips;
+
+  WeekRule({required this.id, required this.planId, required this.weekdays, required this.from, Set<String>? skips})
+      : skips = skips ?? <String>{};
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+        'id': id,
+        'planId': planId,
+        'wd': weekdays,
+        'from': from,
+        if (skips.isNotEmpty) 'skip': skips.toList(),
+      };
+
+  static WeekRule? fromJson(Map<String, dynamic> j) {
+    final List<int> wd = ((j['wd'] as List<dynamic>?) ?? <dynamic>[])
+        .map((dynamic e) => (e as num).toInt())
+        .where((int d) => d >= 1 && d <= 7)
+        .toSet()
+        .toList()
+      ..sort();
+    if (wd.isEmpty || '${j['planId'] ?? ''}'.isEmpty) {
+      return null;
+    }
+    return WeekRule(
+      id: '${j['id']}',
+      planId: '${j['planId']}',
+      weekdays: wd,
+      from: '${j['from'] ?? ''}',
+      skips: ((j['skip'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toSet(),
+    );
+  }
+}
+
 class ScheduledUnit {
   final String id;
 

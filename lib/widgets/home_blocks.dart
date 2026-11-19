@@ -158,7 +158,7 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final AppColors c = AppColors.of(context);
-    const Color ink = Color(0xFF0D0E0F);
+    final Color ink = AppColors.of(context).onLime;
     return InkWell(
       onTap: onTap,
       child: AnimatedContainer(
@@ -182,7 +182,7 @@ class _Tile extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                     color: c.lime,
-                    child: Text(badge!.toUpperCase(), style: labelStyle(context, color: const Color(0xFF0D0E0F))),
+                    child: Text(badge!.toUpperCase(), style: labelStyle(context, color: AppColors.of(context).onLime)),
                   ),
               ],
             ),

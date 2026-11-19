@@ -41,11 +41,11 @@ class FitnessApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: buildTheme(
         Brightness.light,
-        colors: AppColors.pick(Brightness.light, lightStyle: state.lightStyle, highContrast: state.highContrast),
+        colors: AppColors.pick(Brightness.light, lightStyle: state.lightStyle, highContrast: state.highContrast).withAccent(state.accent),
       ),
       darkTheme: buildTheme(
         Brightness.dark,
-        colors: AppColors.pick(Brightness.dark, darkStyle: state.darkStyle, highContrast: state.highContrast),
+        colors: AppColors.pick(Brightness.dark, darkStyle: state.darkStyle, highContrast: state.highContrast).withAccent(state.accent),
       ),
       themeMode: state.themeMode,
       navigatorKey: appNavigator,

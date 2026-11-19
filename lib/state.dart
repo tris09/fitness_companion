@@ -10,6 +10,7 @@ import 'models.dart';
 import 'services/auth_service.dart';
 import 'services/coach_service.dart';
 import 'services/google_auth.dart';
+import 'theme.dart';
 import 'services/notifications.dart';
 import 'services/secrets.dart';
 import 'training_memory.dart';
@@ -33,6 +34,9 @@ class AppState extends ChangeNotifier {
   /// First name, asked on the first page after login. Shown as "Hi, Name".
   String firstName = '';
 
+  /// Accent colour (default lime). From the palette or picked freely.
+  Color accent = AppColors.defaultAccent;
+
   /// Black/white, thick borders, no title bar. For low vision.
   bool highContrast = false;
 
@@ -47,6 +51,12 @@ class AppState extends ChangeNotifier {
 
   /// Planned units in the calendar. Several per day are allowed.
   List<ScheduledUnit> schedule = <ScheduledUnit>[];
+
+  /// Templates on fixed weekdays. Shown in the calendar without single entries.
+  List<WeekRule> weekRules = <WeekRule>[];
+
+  /// Finished calendar entries as 'yyyy-m-d|planId'. Kept 6 months like the rest.
+  Set<String> doneKeys = <String>{};
 
   /// 'drag' = two lists with drag and drop, 'list' = vertical editor with buttons.
   String plannerMode = 'drag';
@@ -151,6 +161,7 @@ class AppState extends ChangeNotifier {
           lightStyle = 'white';
         }
         firstName = (j['firstName'] as String?) ?? '';
+        accent = j['accent'] is num ? Color((j['accent'] as num).toInt()) : AppColors.defaultAccent;
         darkStyle = const <String>['black', 'grey', 'blue'].contains(j['darkStyle']) ? j['darkStyle'] as String : 'black';
         highContrast = j['highContrast'] == true;
         final dynamic ts = j['textScale'];
@@ -158,6 +169,8 @@ class AppState extends ChangeNotifier {
         pushEnabled = j['pushEnabled'] != false;
         trainingReminders = j['trainingReminders'] != false;
         schedule = <ScheduledUnit>[];
+    weekRules = <WeekRule>[];
+    doneKeys = <String>{};
         for (final dynamic e in (j['schedule'] as List<dynamic>?) ?? <dynamic>[]) {
           if (e is Map) {
             final ScheduledUnit? u = ScheduledUnit.fromJson(Map<String, dynamic>.from(e));
@@ -166,6 +179,11 @@ class AppState extends ChangeNotifier {
             }
           }
         }
+        weekRules = <WeekRule>[
+          for (final dynamic e in (j['weekRules'] as List<dynamic>?) ?? <dynamic>[])
+            if (e is Map && WeekRule.fromJson(Map<String, dynamic>.from(e)) != null) WeekRule.fromJson(Map<String, dynamic>.from(e))!,
+        ];
+        doneKeys = ((j['done'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toSet();
         plannerMode = (j['plannerMode'] as String?) == 'list' ? 'list' : 'drag';
         coachModel = (j['coachModel'] as String?) ?? kDefaultCoachModel;
         // Version 10: switch old saved defaults to the Lite model once.
@@ -287,12 +305,15 @@ class AppState extends ChangeNotifier {
         'lightStyle': lightStyle,
         'styleV': 2,
         'firstName': firstName,
+        'accent': accent.toARGB32(),
         'darkStyle': darkStyle,
         'highContrast': highContrast,
         'textScale': textScale,
         'pushEnabled': pushEnabled,
         'trainingReminders': trainingReminders,
         'schedule': schedule.map((ScheduledUnit u) => u.toJson()).toList(),
+        'weekRules': weekRules.map((WeekRule r) => r.toJson()).toList(),
+        'done': doneKeys.toList(),
         'history': history.map((WorkoutLog e) => e.toJson()).toList(),
         'weeks': weeks,
         'records': records,
@@ -426,6 +447,7 @@ class AppState extends ChangeNotifier {
     lightStyle = 'white';
     darkStyle = 'black';
     firstName = '';
+    accent = AppColors.defaultAccent;
     highContrast = false;
     textScale = 1.0;
     pushEnabled = true;
@@ -618,7 +640,51 @@ class AppState extends ChangeNotifier {
   }
 
   /// Remembers a finished workout for the coach.
+  /// True when [planId] was trained on [day] (calendar entry finished).
+  bool isDone(DateTime day, String planId) => doneKeys.contains('${_dayKey(day)}|$planId');
+
+  /// Day plans: done on their own day.
+  bool isDayPlanDone(Plan p) => p.day != null && doneKeys.contains('${p.day}|${p.id}');
+
+  /// Saves a copy of [plan] as a template under "Pläne".
+  Plan saveAsTemplate(Plan plan) {
+    final Plan t = plan.copy()
+      ..id = newId()
+      ..day = null;
+    if (!t.name.toLowerCase().contains('vorlage') && templates.any((Plan p) => p.name == t.name)) {
+      t.name = '${t.name} (Vorlage)';
+    }
+    plans.add(t);
+    _changed();
+    return t;
+  }
+
+  /// Puts a template on fixed weekdays from today on. Replaces an existing rule of the same plan.
+  void setWeekRule(String planId, List<int> weekdays) {
+    weekRules.removeWhere((WeekRule r) => r.planId == planId);
+    if (weekdays.isNotEmpty) {
+      weekRules.add(WeekRule(
+        id: newId(),
+        planId: planId,
+        weekdays: (weekdays.toSet().toList()..sort()),
+        from: _dayKey(DateTime.now()),
+      ));
+    }
+    _changed();
+  }
+
+  WeekRule? ruleOf(String planId) {
+    for (final WeekRule r in weekRules) {
+      if (r.planId == planId) {
+        return r;
+      }
+    }
+    return null;
+  }
+
   void logWorkout(Plan plan, {int minutes = 0}) {
+    // Marks today's calendar entry of this plan as done (day plan, single entry or weekday template).
+    doneKeys.add('${_dayKey(DateTime.now())}|${plan.id}');
     final WorkoutLog w = WorkoutLog(
       date: DateTime.now(),
       planName: plan.name,
@@ -849,6 +915,11 @@ class AppState extends ChangeNotifier {
     _changed();
   }
 
+  void setAccent(Color c) {
+    accent = c.withAlpha(255);
+    _changed();
+  }
+
   void setFirstName(String v) {
     firstName = v.trim();
     _changed();
@@ -910,6 +981,19 @@ class AppState extends ChangeNotifier {
   List<ScheduledUnit> unitsOn(DateTime d) {
     final String k = _dayKey(d);
     final List<ScheduledUnit> list = schedule.where((ScheduledUnit u) => u.day == k && planById(u.planId) != null).toList();
+    // Weekday templates appear as entries with an id 'rule:<ruleId>:<day>'.
+    final DateTime day = DateTime(d.year, d.month, d.day);
+    for (final WeekRule r in weekRules) {
+      final DateTime? from = _parseDayKey(r.from);
+      if (r.weekdays.contains(d.weekday) &&
+          !r.skips.contains(k) &&
+          (from == null || !day.isBefore(from)) &&
+          canPlan(day) &&
+          planById(r.planId) != null &&
+          !list.any((ScheduledUnit u) => u.planId == r.planId)) {
+        list.add(ScheduledUnit(id: 'rule:${r.id}:$k', day: k, planId: r.planId));
+      }
+    }
     list.sort((ScheduledUnit a, ScheduledUnit b) => (a.minute ?? 9999).compareTo(b.minute ?? 9999));
     return list;
   }
@@ -951,6 +1035,17 @@ class AppState extends ChangeNotifier {
   }
 
   void removeUnit(String id) {
+    if (id.startsWith('rule:')) {
+      // A weekday template: only this one day is skipped, the rule stays.
+      final List<String> p = id.split(':');
+      for (final WeekRule r in weekRules) {
+        if (p.length == 3 && r.id == p[1]) {
+          r.skips.add(p[2]);
+        }
+      }
+      _changed();
+      return;
+    }
     schedule.removeWhere((ScheduledUnit u) => u.id == id);
     _pruneSchedule();
     _changed();
@@ -981,6 +1076,11 @@ class AppState extends ChangeNotifier {
       schedule.sort((ScheduledUnit a, ScheduledUnit b) => _parseDayKey(a.day)!.compareTo(_parseDayKey(b.day)!));
       schedule = schedule.sublist(schedule.length - DataLimits.maxUnits);
     }
+    weekRules.removeWhere((WeekRule r) => planById(r.planId) == null);
+    for (final WeekRule r in weekRules) {
+      r.skips.removeWhere((String k) => (_parseDayKey(k) ?? first).isBefore(first));
+    }
+    doneKeys.removeWhere((String k) => (_parseDayKey(k.split('|').first) ?? first).isBefore(first));
     final Set<String> used = schedule.map((ScheduledUnit u) => u.planId).toSet();
     plans.removeWhere((Plan p) => !p.isTemplate && !used.contains(p.id));
     final List<Plan> dayPlans = plans.where((Plan p) => !p.isTemplate).toList();
