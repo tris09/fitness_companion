@@ -124,6 +124,7 @@ String buildCoachSystem(AppState state, {OfferInfo? offers, CoachTopic topic = C
       'propose_coach_settings aufrufen (nur geänderte Felder, ein Satz Begründung). Nichts gilt, bevor sie bestätigt.');
   if (training) {
     s.writeln('- Plan oder Training gewünscht: create_training_plan aufrufen, den Plan nicht als Text schreiben. Für heute genau ein Tag.');
+    s.writeln('- Pläne mit date trägt die App sofort in den Kalender ein (z. B. „fürs Wochenende“ = Sa und So). Sag danach kurz, an welchen Tagen sie stehen.');
     s.writeln('- Nennt die Person Tage oder Daten: pro Tag date (JJJJ-MM-TT) setzen; diese Pläne stehen nur im Kalender. '
         'Will sie eine Vorlage oder einen Plan ohne Tag: date weglassen; der Plan landet unter Pläne.');
     s.writeln('- Nächste Tage: ${_nextDays(now)}. Höchstens ${DataLimits.aheadDays} Tage im Voraus.');

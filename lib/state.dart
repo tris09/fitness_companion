@@ -776,9 +776,23 @@ class AppState extends ChangeNotifier {
       return;
     }
     final CoachProgram program = CoachProgram.parse(m.programJson);
-    _storeProgram(program);
+    m.savedIds = _storeProgram(program);
     m.saved = true;
     _changed();
+  }
+
+  /// Takes back what [saveChatProgram] added (plans and their calendar entries).
+  void undoChatProgram(ChatMessage m) {
+    if (!m.saved) {
+      return;
+    }
+    final Set<String> ids = m.savedIds.toSet();
+    plans.removeWhere((Plan p) => ids.contains(p.id));
+    m.saved = false;
+    m.savedIds = <String>[];
+    _pruneSchedule();
+    _changed();
+    rescheduleReminders();
   }
 
   /// Stores the weights of one workout. Key = exercise id.
@@ -883,7 +897,7 @@ class AppState extends ChangeNotifier {
 
   /// Days with a date go to the calendar only (day plans). Days without a
   /// date become templates under "Pläne".
-  void _storeProgram(CoachProgram program) {
+  List<String> _storeProgram(CoachProgram program) {
     final List<Plan> list = program.toPlans(newId);
     bool scheduled = false;
     for (int i = 0; i < list.length; i++) {
@@ -901,6 +915,7 @@ class AppState extends ChangeNotifier {
       _pruneSchedule();
       rescheduleReminders();
     }
+    return list.map((Plan p) => p.id).toList();
   }
 
   void setPlannerMode(String mode) {

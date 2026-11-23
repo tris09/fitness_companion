@@ -468,6 +468,9 @@ class ChatMessage {
   /// True once the user added the plan to the plan list.
   bool saved;
 
+  /// Ids of the plans created from this message (for undo).
+  List<String> savedIds;
+
   /// Cleaned JSON of a shopping list the coach created. Empty if none.
   final String listJson;
 
@@ -488,18 +491,21 @@ class ChatMessage {
     required this.text,
     this.programJson = '',
     this.saved = false,
+    List<String>? savedIds,
     this.listJson = '',
     this.listSaved = false,
     List<String>? sources,
     this.settingsJson = '',
     this.settingsState = '',
-  }) : sources = sources ?? <String>[];
+  })  : sources = sources ?? <String>[],
+        savedIds = savedIds ?? <String>[];
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         'role': role,
         'text': text,
         'program': programJson,
         'saved': saved,
+        if (savedIds.isNotEmpty) 'savedIds': savedIds,
         'list': listJson,
         'listSaved': listSaved,
         'sources': sources,
@@ -513,6 +519,7 @@ class ChatMessage {
       text: '${j['text'] ?? ''}',
       programJson: '${j['program'] ?? ''}',
       saved: j['saved'] == true,
+      savedIds: ((j['savedIds'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList(),
       listJson: '${j['list'] ?? ''}',
       listSaved: j['listSaved'] == true,
       sources: ((j['sources'] as List<dynamic>?) ?? <dynamic>[]).map((dynamic e) => '$e').toList(),

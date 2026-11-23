@@ -214,14 +214,21 @@ class _ChatScreenState extends State<ChatScreen> {
       if (reply.remember.isNotEmpty) {
         answer += '\n\nGemerkt: ${reply.remember.join('; ')}';
       }
-      state.addChat(ChatMessage(
+      final ChatMessage msg = ChatMessage(
         role: 'model',
         text: answer,
         programJson: reply.program?.json ?? '',
         listJson: reply.listJson,
         settingsJson: reply.settingsJson,
         sources: reply.listJson.isEmpty ? <String>[] : (offers?.sources ?? <String>[]),
-      ));
+      );
+      state.addChat(msg);
+      // Plans for named days go straight into the calendar (undo on the card).
+      // Plans without a day still wait for "In meine Pläne übernehmen".
+      final CoachProgram? prog = reply.program;
+      if (prog != null && prog.datedDays > 0 && prog.templateDays == 0) {
+        state.saveChatProgram(msg);
+      }
       _offlineSince = null;
       _failed = null;
       if (mounted) {
@@ -321,6 +328,22 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(_targetText(program), style: bodyStyle(context, size: 12, color: c.text3)),
           ),
+          if (m.saved && program.templateDays == 0) ...<Widget>[
+            Row(
+              children: <Widget>[
+                Icon(Icons.event_available, size: 20, color: c.text),
+                const SizedBox(width: 6),
+                Expanded(child: Text('Im Kalender eingetragen', style: bodyStyle(context, size: 14, weight: FontWeight.w700))),
+                TextButton(
+                  onPressed: () {
+                    state.undoChatProgram(m);
+                    setState(() {});
+                  },
+                  child: Text('Rückgängig', style: bodyStyle(context, size: 14, weight: FontWeight.w700)),
+                ),
+              ],
+            ),
+          ] else
           PrimaryButton(
             label: m.saved ? _savedLabel(program) : _saveLabel(program),
             height: 46,
